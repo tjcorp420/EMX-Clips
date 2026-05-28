@@ -1327,6 +1327,13 @@ public sealed class TrayAppContext : ApplicationContext
     private string BuildObsLaunchArguments()
     {
         var args = new List<string>();
+        var crashHint = ObsTools.GetRecentCrashHint(TimeSpan.FromMinutes(30));
+        if (crashHint is not null)
+        {
+            args.Add("--only-bundled-plugins");
+            SetDashboardStatus($"OBS crash-safe launch: recent crash pointed to {crashHint.PluginName}. EMX is starting OBS with third-party plugins disabled, while keeping WebSockets available.");
+        }
+
         if (_settings.MinimizeObsToTray)
         {
             args.Add("--minimize-to-tray");
@@ -1783,6 +1790,16 @@ public sealed class TrayAppContext : ApplicationContext
         }
         catch (Exception ex)
         {
+            var crashHint = ObsTools.GetRecentCrashHint(TimeSpan.FromHours(2));
+            if (crashHint is not null)
+            {
+                SetDashboardObsStatus(
+                    "OBS plugin crash detected",
+                    $"The newest OBS crash points to {crashHint.PluginName}. Close the OBS crash prompt and reopen EMX Clips so it can launch OBS with --only-bundled-plugins. Do not use OBS Safe Mode because Safe Mode disables WebSockets.",
+                    EmxTheme.MagentaGlow);
+                return;
+            }
+
             SetDashboardObsStatus(
                 "OBS not connected",
                 $"{BuildObsConnectionHelp(ex.Message)} After it connects, click Check OBS again.",

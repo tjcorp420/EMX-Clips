@@ -2,8 +2,16 @@ using System.Diagnostics;
 
 namespace EmxClips;
 
+public sealed record ObsCrashHint(string CrashFile, string PluginName, DateTime CrashTime);
+
 public static class ObsTools
 {
+    private static readonly (string Module, string Name)[] ThirdPartyCrashModules =
+    [
+        ("aitum-multistream.dll", "Aitum Multistream"),
+        ("logi_obs_plugin_x64.dll", "Logitech OBS plugin")
+    ];
+
     public static string? ResolveObsPath(string? configuredPath = null)
     {
         if (!string.IsNullOrWhiteSpace(configuredPath) && File.Exists(configuredPath))
@@ -81,6 +89,68 @@ public static class ObsTools
 
         var localCandidate = Path.Combine(obsDirectory, "ffmpeg.exe");
         return File.Exists(localCandidate) ? localCandidate : null;
+    }
+
+    public static ObsCrashHint? GetRecentCrashHint(TimeSpan maxAge)
+    {
+        try
+        {
+            var crashDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "obs-studio",
+                "crashes");
+
+            if (!Directory.Exists(crashDirectory))
+            {
+                return null;
+            }
+
+            var latestCrash = Directory.EnumerateFiles(crashDirectory, "Crash*.txt")
+                .Select(path => new FileInfo(path))
+                .Where(info => info.Exists)
+                .OrderByDescending(info => info.LastWriteTimeUtc)
+                .FirstOrDefault();
+
+            if (latestCrash is null || DateTime.UtcNow - latestCrash.LastWriteTimeUtc > maxAge)
+            {
+                return null;
+            }
+
+            var text = File.ReadAllText(latestCrash.FullName);
+            var crashedThread = ExtractCrashedThread(text);
+            var primarySearchText = string.IsNullOrWhiteSpace(crashedThread) ? text : crashedThread;
+
+            foreach (var (module, name) in ThirdPartyCrashModules)
+            {
+                if (primarySearchText.Contains(module, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ObsCrashHint(latestCrash.FullName, name, latestCrash.LastWriteTime);
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string ExtractCrashedThread(string text)
+    {
+        var crashIndex = text.IndexOf("(Crashed)", StringComparison.OrdinalIgnoreCase);
+        if (crashIndex < 0)
+        {
+            return "";
+        }
+
+        var nextThreadIndex = text.IndexOf("\nThread ", crashIndex + 1, StringComparison.OrdinalIgnoreCase);
+        if (nextThreadIndex < 0)
+        {
+            nextThreadIndex = Math.Min(text.Length, crashIndex + 5000);
+        }
+
+        return text[crashIndex..nextThreadIndex];
     }
 
     private static string? ResolveExecutable(string name)
