@@ -198,6 +198,17 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
             inputAudioTracks
         }, cancellationToken);
 
+    public Task SetVideoSettingsAsync(int baseWidth, int baseHeight, int outputWidth, int outputHeight, int fpsNumerator, int fpsDenominator, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("SetVideoSettings", new
+        {
+            baseWidth,
+            baseHeight,
+            outputWidth,
+            outputHeight,
+            fpsNumerator,
+            fpsDenominator
+        }, cancellationToken);
+
     public async Task<int?> GetSceneItemIdAsync(string sceneName, string sourceName, CancellationToken cancellationToken = default)
     {
         var response = await SendRequestAsync("GetSceneItemList", new
@@ -240,6 +251,14 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
             sceneName,
             sceneItemId,
             sceneItemEnabled
+        }, cancellationToken);
+
+    public Task SetSceneItemTransformAsync(string sceneName, int sceneItemId, object sceneItemTransform, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("SetSceneItemTransform", new
+        {
+            sceneName,
+            sceneItemId,
+            sceneItemTransform
         }, cancellationToken);
 
     public async Task<IReadOnlyList<ObsPropertyListItem>> GetInputListPropertyItemsAsync(string inputName, string propertyName, CancellationToken cancellationToken = default)

@@ -4,8 +4,11 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace EmxClips;
+
+internal sealed record DisplayCaptureTarget(string? MonitorId, int Width, int Height);
 
 public sealed class TrayAppContext : ApplicationContext
 {
@@ -13,6 +16,7 @@ public sealed class TrayAppContext : ApplicationContext
     private const string DefaultObsMicInputName = "Mic/Aux";
     private const string EmxMicInputName = "EMX Mic Capture";
     private const string ObsMicInputKind = "wasapi_input_capture";
+    private const int DefaultCaptureFps = 60;
 
     private readonly AppSettings _settings;
     private readonly Control _uiInvoker;
@@ -329,8 +333,13 @@ public sealed class TrayAppContext : ApplicationContext
                 return;
             }
 
-            var monitorId = await TryGetLiveObsMonitorIdAsync(client, DisplayCaptureInputName) ?? FindKnownObsMonitorId();
-            await client.SetInputSettingsAsync(DisplayCaptureInputName, BuildDisplayCaptureSettings(monitorId), overlay: false);
+            var sceneName = await client.GetCurrentProgramSceneAsync();
+            var target = await ResolveDisplayCaptureTargetAsync(client, DisplayCaptureInputName);
+            await client.SetInputSettingsAsync(DisplayCaptureInputName, BuildDisplayCaptureSettings(target.MonitorId), overlay: false);
+            if (!string.IsNullOrWhiteSpace(sceneName))
+            {
+                await ConfigureFullscreenCaptureAsync(client, sceneName, DisplayCaptureInputName, target);
+            }
         }
         catch
         {
@@ -409,6 +418,12 @@ public sealed class TrayAppContext : ApplicationContext
             throw new InvalidOperationException("EMX could not find the active OBS scene. Open OBS once, select your gameplay scene, then try Auto Setup Capture again.");
         }
 
+        var wasActive = await client.GetReplayBufferActiveAsync();
+        if (wasActive)
+        {
+            await client.StopReplayBufferAsync();
+        }
+
         var inputExists = await client.InputExistsAsync(DisplayCaptureInputName);
 
         if (!inputExists)
@@ -417,20 +432,21 @@ public sealed class TrayAppContext : ApplicationContext
             await client.CreateInputAsync(sceneName, DisplayCaptureInputName, inputKind, BuildDisplayCaptureSettings(null));
         }
 
-        var monitorId = await TryGetLiveObsMonitorIdAsync(client, DisplayCaptureInputName) ?? FindKnownObsMonitorId();
-        await client.SetInputSettingsAsync(DisplayCaptureInputName, BuildDisplayCaptureSettings(monitorId), overlay: false);
+        var target = await ResolveDisplayCaptureTargetAsync(client, DisplayCaptureInputName);
+        await client.SetInputSettingsAsync(DisplayCaptureInputName, BuildDisplayCaptureSettings(target.MonitorId), overlay: false);
+        await ConfigureFullscreenCaptureAsync(client, sceneName, DisplayCaptureInputName, target);
 
-        var hasMonitorId = !string.IsNullOrWhiteSpace(monitorId);
+        var hasMonitorId = !string.IsNullOrWhiteSpace(target.MonitorId);
 
         await TrySyncObsSettingsAsync(client);
-        if (!await client.GetReplayBufferActiveAsync())
+        if (_settings.AutoStartReplayBuffer || wasActive || !await client.GetReplayBufferActiveAsync())
         {
             await client.StartReplayBufferAsync();
         }
 
         ShowBalloon("Capture ready", $"Configured {DisplayCaptureInputName} in OBS scene '{sceneName}'.", ToolTipIcon.Info);
         SetDashboardStatus(hasMonitorId
-            ? $"Capture ready: {DisplayCaptureInputName} is locked to your display in OBS scene '{sceneName}'. Wait {_settings.ReplayBufferSeconds} seconds, then press your hotkey."
+            ? $"Capture ready: {target.Width}x{target.Height} full-screen canvas is set in OBS. Wait {_settings.ReplayBufferSeconds} seconds, then save a fresh clip."
             : $"Capture source added, but OBS did not expose a monitor id. If clips stay black, open OBS source properties for {DisplayCaptureInputName} and select your display.");
     }
 
@@ -672,6 +688,109 @@ public sealed class TrayAppContext : ApplicationContext
         {
             return null;
         }
+    }
+
+    private static async Task<DisplayCaptureTarget> ResolveDisplayCaptureTargetAsync(ObsWebSocketClient client, string inputName)
+    {
+        try
+        {
+            var monitors = await client.GetInputListPropertyItemsAsync(inputName, "monitor_id");
+            var preferred = monitors.FirstOrDefault(monitor =>
+                    monitor.Enabled &&
+                    monitor.Name.Contains("Primary", StringComparison.OrdinalIgnoreCase)) ??
+                monitors.FirstOrDefault(monitor => monitor.Enabled);
+
+            if (preferred is not null)
+            {
+                var size = TryParseMonitorSize(preferred.Name) ?? GetPrimaryScreenSize();
+                return new DisplayCaptureTarget(preferred.Value, size.Width, size.Height);
+            }
+        }
+        catch (ObsRequestException)
+        {
+            // Older OBS builds can refuse this property list until the source exists.
+        }
+
+        var fallbackSize = GetPrimaryScreenSize();
+        return new DisplayCaptureTarget(FindKnownObsMonitorId(), fallbackSize.Width, fallbackSize.Height);
+    }
+
+    private static async Task ConfigureFullscreenCaptureAsync(ObsWebSocketClient client, string sceneName, string sourceName, DisplayCaptureTarget target)
+    {
+        await client.SetVideoSettingsAsync(
+            target.Width,
+            target.Height,
+            target.Width,
+            target.Height,
+            DefaultCaptureFps,
+            1);
+
+        var sceneItemId = await client.GetSceneItemIdAsync(sceneName, sourceName);
+        if (sceneItemId is null)
+        {
+            await client.CreateSceneItemAsync(sceneName, sourceName);
+            sceneItemId = await client.GetSceneItemIdAsync(sceneName, sourceName);
+        }
+
+        if (sceneItemId is null)
+        {
+            return;
+        }
+
+        await client.SetSceneItemEnabledAsync(sceneName, sceneItemId.Value, sceneItemEnabled: true);
+        await client.SetSceneItemTransformAsync(sceneName, sceneItemId.Value, new
+        {
+            alignment = 5,
+            boundsAlignment = 5,
+            boundsType = "OBS_BOUNDS_STRETCH",
+            boundsWidth = target.Width,
+            boundsHeight = target.Height,
+            cropBottom = 0,
+            cropLeft = 0,
+            cropRight = 0,
+            cropTop = 0,
+            positionX = 0.0,
+            positionY = 0.0,
+            rotation = 0.0,
+            scaleX = 1.0,
+            scaleY = 1.0
+        });
+    }
+
+    private static Size? TryParseMonitorSize(string text)
+    {
+        var match = Regex.Match(text, @"(?<width>\d{3,5})\s*x\s*(?<height>\d{3,5})");
+        if (!match.Success ||
+            !int.TryParse(match.Groups["width"].Value, out var width) ||
+            !int.TryParse(match.Groups["height"].Value, out var height))
+        {
+            return null;
+        }
+
+        return NormalizeCaptureSize(width, height);
+    }
+
+    private static Size GetPrimaryScreenSize()
+    {
+        var bounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
+        return NormalizeCaptureSize(bounds.Width, bounds.Height);
+    }
+
+    private static Size NormalizeCaptureSize(int width, int height)
+    {
+        const int maxObsDimension = 4096;
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+
+        if (width <= maxObsDimension && height <= maxObsDimension)
+        {
+            return new Size(width, height);
+        }
+
+        var scale = Math.Min(maxObsDimension / (double)width, maxObsDimension / (double)height);
+        return new Size(
+            Math.Max(1, (int)Math.Round(width * scale)),
+            Math.Max(1, (int)Math.Round(height * scale)));
     }
 
     private static string? FindKnownObsMonitorId()
