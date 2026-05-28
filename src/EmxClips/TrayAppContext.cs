@@ -180,7 +180,11 @@ public sealed class TrayAppContext : ApplicationContext
     {
         TryLaunchObs();
         var client = await GetObsClientAsync();
-        await TrySyncObsSettingsAsync(client);
+        var liveOutputActive = await IsStreamingOrRecordingAsync(client);
+        if (!liveOutputActive)
+        {
+            await TrySyncObsSettingsAsync(client);
+        }
 
         if (!await client.GetReplayBufferActiveAsync())
         {
@@ -190,21 +194,38 @@ public sealed class TrayAppContext : ApplicationContext
             }
             catch (ObsRequestException ex)
             {
-                throw new InvalidOperationException(BuildStartBufferHelp(ex), ex);
+                throw new InvalidOperationException(liveOutputActive ? BuildLiveStartBufferHelp(ex) : BuildStartBufferHelp(ex), ex);
             }
         }
 
         if (showNotification)
         {
-            ShowBalloon("Replay buffer on", $"EMX is capturing the last {_settings.ReplayBufferSeconds} seconds in memory.", ToolTipIcon.Info);
+            ShowBalloon("Replay buffer on", liveOutputActive
+                ? "Live Safe Mode is on. EMX is using OBS replay buffer without changing your stream setup."
+                : $"EMX is capturing the last {_settings.ReplayBufferSeconds} seconds in memory.", ToolTipIcon.Info);
         }
 
-        SetDashboardStatus($"Replay buffer on. Press Save Clip once to save the last {_settings.ReplayBufferSeconds} seconds.");
+        SetDashboardStatus(liveOutputActive
+            ? $"Live Safe Mode: replay buffer on. EMX will save clips without changing the live OBS scene/profile."
+            : $"Replay buffer on. Press Save Clip once to save the last {_settings.ReplayBufferSeconds} seconds.");
     }
 
     private async Task RestartReplayBufferAsync()
     {
         var client = await GetObsClientAsync();
+        if (await IsStreamingOrRecordingAsync(client))
+        {
+            if (!await client.GetReplayBufferActiveAsync())
+            {
+                await StartReplayBufferAsync();
+                return;
+            }
+
+            SetDashboardStatus("Live Safe Mode: OBS is live, so EMX did not restart outputs. Replay buffer is already running.");
+            ShowBalloon("Live Safe Mode", "OBS is live, so EMX left stream outputs alone.", ToolTipIcon.Info);
+            return;
+        }
+
         if (await client.GetReplayBufferActiveAsync())
         {
             try
@@ -236,19 +257,28 @@ public sealed class TrayAppContext : ApplicationContext
     {
         TryLaunchObs();
         var client = await GetObsClientAsync();
+        var liveOutputActive = await IsStreamingOrRecordingAsync(client);
         if (!await client.GetReplayBufferActiveAsync())
         {
-            await TrySyncObsSettingsAsync(client);
+            if (!liveOutputActive)
+            {
+                await TrySyncObsSettingsAsync(client);
+            }
+
             try
             {
                 await client.StartReplayBufferAsync();
             }
             catch (ObsRequestException ex)
             {
-                throw new InvalidOperationException(BuildStartBufferHelp(ex), ex);
+                throw new InvalidOperationException(liveOutputActive ? BuildLiveStartBufferHelp(ex) : BuildStartBufferHelp(ex), ex);
             }
-            ShowBalloon("Replay buffer started", $"EMX started the background buffer. It needs up to {_settings.ReplayBufferSeconds} seconds to fill.", ToolTipIcon.Info);
-            SetDashboardStatus($"Background buffer was off. EMX started it now; future hotkey presses save the past {_settings.ReplayBufferSeconds} seconds.");
+            ShowBalloon("Replay buffer started", liveOutputActive
+                ? "Live Safe Mode started OBS replay buffer without changing stream setup. Wait for the buffer to fill."
+                : $"EMX started the background buffer. It needs up to {_settings.ReplayBufferSeconds} seconds to fill.", ToolTipIcon.Info);
+            SetDashboardStatus(liveOutputActive
+                ? $"Live Safe Mode: replay buffer was off, so EMX started it without changing OBS settings. Wait {_settings.ReplayBufferSeconds} seconds, then clip again."
+                : $"Background buffer was off. EMX started it now; future hotkey presses save the past {_settings.ReplayBufferSeconds} seconds.");
             return;
         }
 
@@ -310,18 +340,52 @@ public sealed class TrayAppContext : ApplicationContext
     {
         Directory.CreateDirectory(_settings.ClipsFolder);
 
+        var streamOrRecordActive = await IsStreamingOrRecordingAsync(client);
+        if (streamOrRecordActive)
+        {
+            return false;
+        }
+
         await EnsureDedicatedObsWorkspaceAsync(client);
-        await TrySetProfileParameterAsync(client, "SimpleOutput", "FilePath", _settings.ClipsFolder);
-        await TrySetProfileParameterAsync(client, "SimpleOutput", "RecRB", "true");
-        await TrySetProfileParameterAsync(client, "SimpleOutput", "RecRBTime", _settings.ReplayBufferSeconds.ToString());
-        await TrySetProfileParameterAsync(client, "SimpleOutput", "RecRBSize", _settings.ReplayBufferMemoryMb.ToString());
-        await TrySetProfileParameterAsync(client, "AdvOut", "RecFilePath", _settings.ClipsFolder);
-        await TrySetProfileParameterAsync(client, "AdvOut", "RecRB", "true");
-        await TrySetProfileParameterAsync(client, "AdvOut", "RecRBTime", _settings.ReplayBufferSeconds.ToString());
-        await TrySetProfileParameterAsync(client, "AdvOut", "RecRBSize", _settings.ReplayBufferMemoryMb.ToString());
-        var captureChanged = await EnsureDisplayCaptureAsync(client, createIfMissing: true);
-        await TryApplyMicrophoneSettingsAsync(client);
-        return captureChanged;
+        var replayWasActive = await client.GetReplayBufferActiveAsync();
+        if (replayWasActive)
+        {
+            await client.StopReplayBufferAsync();
+        }
+
+        var syncChanged = false;
+        try
+        {
+            await TrySetProfileParameterAsync(client, "SimpleOutput", "FilePath", _settings.ClipsFolder);
+            await TrySetProfileParameterAsync(client, "SimpleOutput", "RecRB", "true");
+            await TrySetProfileParameterAsync(client, "SimpleOutput", "RecRBTime", _settings.ReplayBufferSeconds.ToString());
+            await TrySetProfileParameterAsync(client, "SimpleOutput", "RecRBSize", _settings.ReplayBufferMemoryMb.ToString());
+            await TrySetProfileParameterAsync(client, "AdvOut", "RecFilePath", _settings.ClipsFolder);
+            await TrySetProfileParameterAsync(client, "AdvOut", "RecRB", "true");
+            await TrySetProfileParameterAsync(client, "AdvOut", "RecRBTime", _settings.ReplayBufferSeconds.ToString());
+            await TrySetProfileParameterAsync(client, "AdvOut", "RecRBSize", _settings.ReplayBufferMemoryMb.ToString());
+            syncChanged = await EnsureDisplayCaptureAsync(client, createIfMissing: true, allowVideoSettingsChange: true);
+            await TryApplyMicrophoneSettingsAsync(client);
+        }
+        finally
+        {
+            if (replayWasActive)
+            {
+                try
+                {
+                    if (!await client.GetReplayBufferActiveAsync())
+                    {
+                        await client.StartReplayBufferAsync();
+                    }
+                }
+                catch
+                {
+                    // Manual restart and the watchdog can recover if OBS refuses to restart immediately.
+                }
+            }
+        }
+
+        return syncChanged || replayWasActive;
     }
 
     private async Task EnsureDedicatedObsWorkspaceAsync(ObsWebSocketClient client)
@@ -373,7 +437,7 @@ public sealed class TrayAppContext : ApplicationContext
         }
     }
 
-    private static async Task<bool> EnsureDisplayCaptureAsync(ObsWebSocketClient client, bool createIfMissing)
+    private static async Task<bool> EnsureDisplayCaptureAsync(ObsWebSocketClient client, bool createIfMissing, bool allowVideoSettingsChange)
     {
         var sceneName = await client.GetCurrentProgramSceneAsync();
         if (string.IsNullOrWhiteSpace(sceneName))
@@ -402,7 +466,7 @@ public sealed class TrayAppContext : ApplicationContext
 
         var target = await ResolveDisplayCaptureTargetAsync(client, DisplayCaptureInputName);
         await client.SetInputSettingsAsync(DisplayCaptureInputName, BuildDisplayCaptureSettings(target.MonitorId), overlay: false);
-        await ConfigureFullscreenCaptureAsync(client, sceneName, DisplayCaptureInputName, target);
+        await ConfigureFullscreenCaptureAsync(client, sceneName, DisplayCaptureInputName, target, allowVideoSettingsChange);
         return changed;
     }
 
@@ -410,7 +474,26 @@ public sealed class TrayAppContext : ApplicationContext
     {
         TryLaunchObs();
         var client = await GetObsClientAsync();
+        var liveOutputActive = await IsStreamingOrRecordingAsync(client);
         var wasActive = await client.GetReplayBufferActiveAsync();
+
+        if (liveOutputActive)
+        {
+            if ((_settings.AutoStartReplayBuffer || wasActive) && !wasActive)
+            {
+                try
+                {
+                    await client.StartReplayBufferAsync();
+                }
+                catch (ObsRequestException ex)
+                {
+                    throw new InvalidOperationException(BuildLiveStartBufferHelp(ex), ex);
+                }
+            }
+
+            SetDashboardStatus("Live Safe Mode: settings saved locally. EMX did not change the live OBS profile, scene, capture source, or video settings.");
+            return;
+        }
 
         if (wasActive)
         {
@@ -429,6 +512,7 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 throw new InvalidOperationException(BuildStartBufferHelp(ex), ex);
             }
+
             SetDashboardStatus($"Settings saved. EMX is now buffering {_settings.ReplayBufferSeconds}-second clips in the background.");
         }
         else
@@ -449,23 +533,11 @@ public sealed class TrayAppContext : ApplicationContext
         {
             TryLaunchObs();
             var client = await GetObsClientAsync();
-            var wasActive = await client.GetReplayBufferActiveAsync();
             var captureChanged = await TrySyncObsSettingsAsync(client);
 
-            if (wasActive && captureChanged)
+            if (captureChanged)
             {
-                try
-                {
-                    await client.StopReplayBufferAsync();
-                }
-                catch (ObsRequestException)
-                {
-                    // Best effort; the follow-up start will restore the desired state.
-                }
-
-                await client.StartReplayBufferAsync();
-                SetDashboardStatus("EMX repaired the missing display capture and restarted the replay buffer. Wait one clip length, then save a fresh clip.");
-                return;
+                SetDashboardStatus("EMX refreshed OBS capture settings. Wait one clip length, then save a fresh clip.");
             }
 
             if (!await client.GetReplayBufferActiveAsync())
@@ -488,6 +560,11 @@ public sealed class TrayAppContext : ApplicationContext
     {
         TryLaunchObs();
         var client = await GetObsClientAsync();
+        if (await IsStreamingOrRecordingAsync(client))
+        {
+            throw new InvalidOperationException("Live Safe Mode: Auto Setup Capture is locked while OBS is live. EMX can save clips from an already-running OBS replay buffer, but capture setup must be done after stream.");
+        }
+
         var sceneName = await client.GetCurrentProgramSceneAsync();
         if (string.IsNullOrWhiteSpace(sceneName))
         {
@@ -500,7 +577,7 @@ public sealed class TrayAppContext : ApplicationContext
             await client.StopReplayBufferAsync();
         }
 
-        await EnsureDisplayCaptureAsync(client, createIfMissing: true);
+        await EnsureDisplayCaptureAsync(client, createIfMissing: true, allowVideoSettingsChange: true);
         var target = await ResolveDisplayCaptureTargetAsync(client, DisplayCaptureInputName);
 
         var hasMonitorId = !string.IsNullOrWhiteSpace(target.MonitorId);
@@ -521,6 +598,11 @@ public sealed class TrayAppContext : ApplicationContext
     {
         TryLaunchObs();
         var client = await GetObsClientAsync();
+        if (await IsStreamingOrRecordingAsync(client))
+        {
+            throw new InvalidOperationException("Live Safe Mode: Auto Setup Mic is locked while OBS is live so EMX does not change live audio sources. Set up mic capture after stream.");
+        }
+
         await ApplyMicrophoneSettingsAsync(client, createIfMissing: true);
 
         if (_settings.CaptureMicrophone)
@@ -782,15 +864,18 @@ public sealed class TrayAppContext : ApplicationContext
         return new DisplayCaptureTarget(FindKnownObsMonitorId(), fallbackSize.Width, fallbackSize.Height);
     }
 
-    private static async Task ConfigureFullscreenCaptureAsync(ObsWebSocketClient client, string sceneName, string sourceName, DisplayCaptureTarget target)
+    private static async Task ConfigureFullscreenCaptureAsync(ObsWebSocketClient client, string sceneName, string sourceName, DisplayCaptureTarget target, bool allowVideoSettingsChange)
     {
-        await client.SetVideoSettingsAsync(
-            target.Width,
-            target.Height,
-            target.Width,
-            target.Height,
-            DefaultCaptureFps,
-            1);
+        if (allowVideoSettingsChange)
+        {
+            await client.SetVideoSettingsAsync(
+                target.Width,
+                target.Height,
+                target.Width,
+                target.Height,
+                DefaultCaptureFps,
+                1);
+        }
 
         var sceneItemId = await client.GetSceneItemIdAsync(sceneName, sourceName);
         if (sceneItemId is null)
@@ -966,6 +1051,11 @@ public sealed class TrayAppContext : ApplicationContext
     private string BuildStartBufferHelp(ObsRequestException ex)
     {
         return $"OBS rejected starting the replay buffer. Close OBS and reopen EMX Clips so EMX can launch OBS into the cloned EMX Clips workspace. If OBS still shows Starting the output failed, open OBS Settings > Output and choose a working recording encoder, or update your GPU drivers for NVENC/AMD. EMX tried to enable a {_settings.ReplayBufferSeconds}-second buffer.\n\nOBS detail: {ex.Message}";
+    }
+
+    private string BuildLiveStartBufferHelp(ObsRequestException ex)
+    {
+        return $"OBS is live, so EMX stayed in Live Safe Mode and did not change the stream profile, scene, capture source, encoder, or video settings. OBS rejected starting replay buffer with its current live setup. Have your friend enable and test Replay Buffer in OBS before going live, then EMX can save clips while live.\n\nOBS detail: {ex.Message}";
     }
 
     private string BuildSaveClipHelp(ObsRequestException ex)
