@@ -58,7 +58,7 @@ if (isIos && !isStandalone) {
 }
 
 if (currentPortalUrl && pcPortalUrl) {
-  pairPortal(currentPortalUrl, "Your QR came from EMX Clips. Tap Open My PC Clips while your phone is on the same Wi-Fi as the PC.");
+  pairPortal(currentPortalUrl, "Connected to EMX Clips. Opening your PC clip library now...", true);
 }
 
 window.addEventListener("beforeinstallprompt", event => {
@@ -116,7 +116,7 @@ copyLink?.addEventListener("click", async () => {
   }, 1800);
 });
 
-function pairPortal(url, message) {
+function pairPortal(url, message, autoOpen = false) {
   currentPortalUrl = url;
 
   if (pcPortalUrl) {
@@ -129,7 +129,13 @@ function pairPortal(url, message) {
 
   installTitle.textContent = "PC portal paired";
   installText.textContent = message;
-  setScannerStatus("QR paired. Tap Open My PC Clips.");
+  setScannerStatus(autoOpen ? "Connected. Opening clip library..." : "QR paired. Tap Open My PC Clips.");
+
+  if (autoOpen) {
+    window.setTimeout(() => {
+      window.location.href = url;
+    }, 650);
+  }
 }
 
 function isHttpUrl(value) {
@@ -224,7 +230,7 @@ function scanLoop() {
       if (code?.data) {
         const portal = portalFromQr(code.data);
         if (portal) {
-          pairPortal(portal, "QR scanned. Tap Open My PC Clips while your phone is on the same Wi-Fi as the PC.");
+          pairPortal(portal, "QR scanned. Opening your PC clip library now...", true);
           stopQrScanner("");
           return;
         }
