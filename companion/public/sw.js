@@ -1,4 +1,4 @@
-const CACHE_NAME = "emx-clips-companion-v3";
+const CACHE_NAME = "emx-clips-companion-v4";
 const ASSETS = [
   "/",
   "/index.html",

@@ -940,10 +940,16 @@ public sealed class TrayAppContext : ApplicationContext
         });
     }
 
-    private void OpenPhoneCompanion()
+    private async void OpenPhoneCompanion()
     {
         try
         {
+            if (_settings.UseFirebaseCloudShare)
+            {
+                await OpenFirebaseCloudCompanionAsync().ConfigureAwait(true);
+                return;
+            }
+
             _phoneCompanionServer ??= new PhoneCompanionServer(_settings);
             var localPortalUrl = _phoneCompanionServer.Start();
             var companionUrl = BuildHostedCompanionUrl(localPortalUrl);
@@ -966,6 +972,34 @@ public sealed class TrayAppContext : ApplicationContext
             ShowBalloon("EMX Clips", message, ToolTipIcon.Error);
             SetDashboardStatus(message);
         }
+    }
+
+    private async Task OpenFirebaseCloudCompanionAsync()
+    {
+        if (!FirebaseCloudShare.IsConfigured(_settings))
+        {
+            var setupMessage = "Firebase Cloud Share needs API key and Storage bucket in Settings.";
+            ShowBalloon("EMX Clips", setupMessage, ToolTipIcon.Warning);
+            SetDashboardStatus(setupMessage);
+            OpenDashboard();
+            return;
+        }
+
+        SetDashboardStatus("Uploading latest MP4 clips to Firebase Cloud Share...");
+        ShowBalloon("Cloud Share", "Uploading latest MP4 clips to Firebase. Keep EMX Clips open.", ToolTipIcon.Info);
+
+        var result = await FirebaseCloudShare.PublishLatestAsync(_settings).ConfigureAwait(true);
+        if (_phoneCompanionForm is null || _phoneCompanionForm.IsDisposed)
+        {
+            _phoneCompanionForm = new PhoneCompanionForm(result.CompanionUrl, "Firebase Cloud Share - stays inside the Vercel phone app", _icon);
+            _phoneCompanionForm.FormClosed += (_, _) => _phoneCompanionForm = null;
+        }
+
+        _phoneCompanionForm.Show();
+        _phoneCompanionForm.Activate();
+        Clipboard.SetText(result.CompanionUrl);
+        ShowBalloon("Cloud Share ready", $"Uploaded {result.UploadedClips} clip(s). Scan QR to open clips in the Vercel app.", ToolTipIcon.Info);
+        SetDashboardStatus($"Firebase Cloud Share ready: {result.UploadedClips} clip(s), {ClipLibrary.FormatSize(result.UploadedBytes)} uploaded. QR link copied.");
     }
 
     private static string BuildHostedCompanionUrl(string localPortalUrl)

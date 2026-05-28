@@ -37,6 +37,10 @@ public sealed class AppSettings
     public bool CaptureMicrophone { get; set; } = true;
     public string MicrophoneDeviceId { get; set; } = "default";
     public string MicrophoneDeviceName { get; set; } = "Default";
+    public bool UseFirebaseCloudShare { get; set; }
+    public string FirebaseApiKey { get; set; } = "";
+    public string FirebaseStorageBucket { get; set; } = "";
+    public string FirebaseSessionId { get; set; } = "";
     public bool SetupCompleted { get; set; }
     public Keys HotkeyKey { get; set; } = Keys.F8;
     public HotkeyModifiers HotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Alt;
@@ -83,6 +87,11 @@ public sealed class AppSettings
 
     private void Migrate()
     {
+        if (string.IsNullOrWhiteSpace(FirebaseSessionId))
+        {
+            FirebaseSessionId = Guid.NewGuid().ToString("N");
+        }
+
         if (string.IsNullOrWhiteSpace(UpdateManifestUrl) ||
             UpdateManifestUrl.Contains("YOURNAME", StringComparison.OrdinalIgnoreCase) ||
             UpdateManifestUrl.Contains("EMXTweaks/EMX-Clips", StringComparison.OrdinalIgnoreCase))

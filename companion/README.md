@@ -28,6 +28,7 @@ Use the `companion` folder as the Vercel project root. It is a static PWA with n
 - Hosted QR pairing with `?portal=` links from the Windows app
 - Built-in camera QR scanner for pairing from the installed PWA
 - EMX logo icons for iPhone home screen, desktop install, and browser tabs
+- Firebase Cloud Share mode with `?cloudIndex=` libraries that stay inside the Vercel app
 
 ## Next Piece
 

@@ -2,6 +2,8 @@
 
 EMX Clips includes a local phone companion server for moving clips from PC to phone.
 
+It also has optional Firebase Cloud Share for keeping the phone inside the Vercel companion app. See [Firebase Cloud Share](FIREBASE_CLOUD_SHARE.md).
+
 ## How To Use
 
 1. Open EMX Clips on the PC.

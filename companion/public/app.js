@@ -14,6 +14,7 @@ const scannerCanvas = document.querySelector("#scannerCanvas");
 const scannerStatus = document.querySelector("#scannerStatus");
 const query = new URLSearchParams(window.location.search);
 let currentPortalUrl = query.get("portal") || query.get("pc") || "";
+const cloudIndexUrl = query.get("cloudIndex") || "";
 let scannerStream = null;
 let scannerFrameId = 0;
 let scannerActive = false;
@@ -26,17 +27,21 @@ const clips = [
 
 let installPrompt = null;
 
-for (const clip of clips) {
-  const row = document.createElement("div");
-  row.className = "clip";
-  row.innerHTML = `
-    <div class="thumb">EMX</div>
-    <div>
-      <strong>${clip.title}</strong>
-      <span>${clip.meta}</span>
-    </div>
-  `;
-  clipList.append(row);
+if (cloudIndexUrl) {
+  loadCloudClips(cloudIndexUrl);
+} else {
+  for (const clip of clips) {
+    const row = document.createElement("div");
+    row.className = "clip";
+    row.innerHTML = `
+      <div class="thumb">EMX</div>
+      <div>
+        <strong>${clip.title}</strong>
+        <span>${clip.meta}</span>
+      </div>
+    `;
+    clipList.append(row);
+  }
 }
 
 if ("serviceWorker" in navigator) {
@@ -59,6 +64,12 @@ if (isIos && !isStandalone) {
 
 if (currentPortalUrl && pcPortalUrl) {
   pairPortal(currentPortalUrl, "Connected to EMX Clips. Opening your PC clip library now...", true);
+}
+
+if (cloudIndexUrl) {
+  installTitle.textContent = "Cloud library connected";
+  installText.textContent = "Your clips are loading inside the EMX Companion app from Firebase Cloud Share.";
+  setScannerStatus("Firebase Cloud Share connected.");
 }
 
 window.addEventListener("beforeinstallprompt", event => {
@@ -278,4 +289,98 @@ function stopQrScanner(message) {
   if (message) {
     setScannerStatus(message);
   }
+}
+
+async function loadCloudClips(indexUrl) {
+  clipList.replaceChildren();
+  clipList.append(statusRow("Loading cloud clips...", "Firebase Cloud Share"));
+
+  try {
+    const response = await fetch(indexUrl, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Firebase returned ${response.status}`);
+    }
+
+    const library = await response.json();
+    const cloudClips = Array.isArray(library.clips) ? library.clips : [];
+    clipList.replaceChildren();
+
+    if (cloudClips.length === 0) {
+      clipList.append(statusRow("No cloud clips found yet.", "Save a clip on PC, then use Phone Share again."));
+      return;
+    }
+
+    for (const clip of cloudClips) {
+      clipList.append(cloudClipRow(clip));
+    }
+  } catch (error) {
+    clipList.replaceChildren();
+    clipList.append(statusRow("Could not load cloud clips.", error?.message || "Check Firebase rules and try Phone Share again."));
+  }
+}
+
+function statusRow(title, meta) {
+  const row = document.createElement("div");
+  row.className = "clip";
+  row.innerHTML = `
+    <div class="thumb">EMX</div>
+    <div>
+      <strong>${title}</strong>
+      <span>${meta}</span>
+    </div>
+  `;
+  return row;
+}
+
+function cloudClipRow(clip) {
+  const row = document.createElement("div");
+  row.className = "cloud-clip";
+  const url = clip.url || "";
+  const name = clip.name || "EMX clip";
+  const size = clip.size || "";
+  row.innerHTML = `
+    <video class="cloud-video" src="${escapeAttr(url)}" controls playsinline preload="metadata"></video>
+    <div class="cloud-meta">
+      <strong>${escapeHtml(name)}</strong>
+      <span>${escapeHtml(size)}</span>
+    </div>
+    <div class="actions compact">
+      <a class="button primary" href="${escapeAttr(url)}" download="${escapeAttr(name)}">Download</a>
+      <button class="button" type="button">Share / Save</button>
+    </div>
+  `;
+
+  const share = row.querySelector("button");
+  share?.addEventListener("click", () => shareCloudClip(url, name, clip.contentType || "video/mp4"));
+  return row;
+}
+
+async function shareCloudClip(url, name, contentType) {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    const file = new File([blob], name, { type: contentType });
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], title: name, text: "EMX Clips" });
+      return;
+    }
+  } catch {
+    // Fall back to opening the file below.
+  }
+
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
 }

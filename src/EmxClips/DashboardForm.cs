@@ -35,6 +35,10 @@ public sealed class DashboardForm : Form
     private readonly TextBox _password = new();
     private readonly TextBox _hotkeyDisplay = new();
     private readonly TextBox _toggleHotkeyDisplay = new();
+    private readonly EmxCheckBox _useFirebaseCloudShare = new();
+    private readonly TextBox _firebaseApiKey = new();
+    private readonly TextBox _firebaseStorageBucket = new();
+    private readonly TextBox _firebaseSessionId = new();
     private readonly ComboBox _microphone = new();
     private readonly EmxCheckBox _captureMic = new();
     private readonly ProgressBar _micLevel = new();
@@ -467,7 +471,7 @@ public sealed class DashboardForm : Form
             Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 3,
-            RowCount = 17,
+            RowCount = 21,
             BackColor = EmxTheme.Panel
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
@@ -488,18 +492,25 @@ public sealed class DashboardForm : Form
         AddRow(grid, 11, "Clips folder", _clipsFolder, Button("Browse", ButtonKind.Secondary, BrowseClipsFolder));
         AddRow(grid, 12, "OBS path", _obsPath, Button("Browse", ButtonKind.Secondary, BrowseObsPath));
 
+        _useFirebaseCloudShare.Text = "Use Firebase Cloud Share instead of local Wi-Fi portal";
+        StyleCheckBox(_useFirebaseCloudShare);
+        AddRow(grid, 13, "Cloud share", _useFirebaseCloudShare, null);
+        AddRow(grid, 14, "Firebase API key", _firebaseApiKey, null);
+        AddRow(grid, 15, "Firebase bucket", _firebaseStorageBucket, null);
+        AddRow(grid, 16, "Cloud session", _firebaseSessionId, Button("New", ButtonKind.Secondary, ResetFirebaseSession));
+
         _autoLaunch.Text = "Auto-launch OBS";
         _autoStart.Text = "Auto-start replay buffer";
         _minimizeObs.Text = "Launch OBS minimized";
-        foreach (var checkBox in new[] { _autoLaunch, _autoStart, _minimizeObs, _captureMic })
+        foreach (var checkBox in new[] { _autoLaunch, _autoStart, _minimizeObs, _captureMic, _useFirebaseCloudShare })
         {
             StyleCheckBox(checkBox);
         }
 
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-        grid.Controls.Add(Label("Startup"), 0, 13);
+        grid.Controls.Add(Label("Startup"), 0, 17);
         var startup = Stack(_autoLaunch, _autoStart, _minimizeObs);
-        grid.Controls.Add(startup, 1, 13);
+        grid.Controls.Add(startup, 1, 17);
         grid.SetColumnSpan(startup, 2);
 
         var scroll = new Panel
@@ -976,6 +987,13 @@ public sealed class DashboardForm : Form
         _autoLaunch.Checked = _settings.AutoLaunchObs;
         _autoStart.Checked = _settings.AutoStartReplayBuffer;
         _minimizeObs.Checked = _settings.MinimizeObsToTray;
+        _useFirebaseCloudShare.Checked = _settings.UseFirebaseCloudShare;
+        _firebaseApiKey.Text = _settings.FirebaseApiKey;
+        _firebaseApiKey.PlaceholderText = "Firebase Web API key";
+        _firebaseStorageBucket.Text = _settings.FirebaseStorageBucket;
+        _firebaseStorageBucket.PlaceholderText = "your-project.firebasestorage.app";
+        _firebaseSessionId.Text = _settings.FirebaseSessionId;
+        _firebaseSessionId.PlaceholderText = "Auto-generated share room";
 
         _selectedHotkeyKey = _settings.HotkeyKey;
         _selectedHotkeyModifiers = _settings.HotkeyModifiers;
@@ -1000,6 +1018,12 @@ public sealed class DashboardForm : Form
         _settings.AutoStartReplayBuffer = _autoStart.Checked;
         _settings.MinimizeObsToTray = _minimizeObs.Checked;
         _settings.CaptureMicrophone = _captureMic.Checked;
+        _settings.UseFirebaseCloudShare = _useFirebaseCloudShare.Checked;
+        _settings.FirebaseApiKey = _firebaseApiKey.Text.Trim();
+        _settings.FirebaseStorageBucket = _firebaseStorageBucket.Text.Trim();
+        _settings.FirebaseSessionId = string.IsNullOrWhiteSpace(_firebaseSessionId.Text)
+            ? Guid.NewGuid().ToString("N")
+            : _firebaseSessionId.Text.Trim();
         if (_microphone.SelectedItem is AudioInputDevice device)
         {
             _settings.MicrophoneDeviceId = device.Id;
@@ -1017,6 +1041,12 @@ public sealed class DashboardForm : Form
         RefreshMicControlsState();
         SettingsSaved?.Invoke(this, EventArgs.Empty);
         SetStatus("Settings saved");
+    }
+
+    private void ResetFirebaseSession()
+    {
+        _firebaseSessionId.Text = Guid.NewGuid().ToString("N");
+        SetStatus("New Firebase cloud session created. Save settings before sharing.");
     }
 
     private void LoadMicrophoneDevices()
