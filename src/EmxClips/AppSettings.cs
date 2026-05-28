@@ -37,6 +37,7 @@ public sealed class AppSettings
     public bool AutoLaunchObs { get; set; } = true;
     public bool AutoStartReplayBuffer { get; set; } = true;
     public bool MinimizeObsToTray { get; set; } = true;
+    public bool UseDedicatedObsWorkspace { get; set; } = true;
     public bool CaptureMicrophone { get; set; } = true;
     public string MicrophoneDeviceId { get; set; } = "default";
     public string MicrophoneDeviceName { get; set; } = "Default";

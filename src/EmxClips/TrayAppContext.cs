@@ -16,6 +16,8 @@ public sealed class TrayAppContext : ApplicationContext
     private const string DefaultObsMicInputName = "Mic/Aux";
     private const string EmxMicInputName = "EMX Mic Capture";
     private const string ObsMicInputKind = "wasapi_input_capture";
+    private const string EmxObsProfileName = "EMX Clips";
+    private const string EmxObsSceneCollectionName = "EMX Clips";
     private const int DefaultCaptureFps = 60;
 
     private readonly AppSettings _settings;
@@ -305,6 +307,7 @@ public sealed class TrayAppContext : ApplicationContext
     {
         Directory.CreateDirectory(_settings.ClipsFolder);
 
+        await EnsureDedicatedObsWorkspaceAsync(client);
         await TrySetProfileParameterAsync(client, "SimpleOutput", "FilePath", _settings.ClipsFolder);
         await TrySetProfileParameterAsync(client, "SimpleOutput", "RecRB", "true");
         await TrySetProfileParameterAsync(client, "SimpleOutput", "RecRBTime", _settings.ReplayBufferSeconds.ToString());
@@ -315,6 +318,74 @@ public sealed class TrayAppContext : ApplicationContext
         await TrySetProfileParameterAsync(client, "AdvOut", "RecRBSize", _settings.ReplayBufferMemoryMb.ToString());
         await TryRepairExistingDisplayCaptureAsync(client);
         await TryApplyMicrophoneSettingsAsync(client);
+    }
+
+    private async Task EnsureDedicatedObsWorkspaceAsync(ObsWebSocketClient client)
+    {
+        if (!_settings.UseDedicatedObsWorkspace)
+        {
+            return;
+        }
+
+        var profile = await client.GetProfileListAsync();
+        var sceneCollection = await client.GetSceneCollectionListAsync();
+        if (string.Equals(profile.CurrentName, EmxObsProfileName, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(sceneCollection.CurrentName, EmxObsSceneCollectionName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (await IsStreamingOrRecordingAsync(client))
+        {
+            throw new InvalidOperationException("Streamer safe setup stopped: OBS is currently streaming or recording, so EMX did not change profiles, scenes, or output settings. Stop the stream/recording first, or turn off Streamer safe OBS workspace in EMX settings if you want EMX to use the current OBS setup.");
+        }
+
+        if (await client.GetReplayBufferActiveAsync())
+        {
+            await client.StopReplayBufferAsync();
+        }
+
+        await EnsureProfileAsync(client, EmxObsProfileName, profile);
+        await EnsureSceneCollectionAsync(client, EmxObsSceneCollectionName, sceneCollection);
+    }
+
+    private static async Task<bool> IsStreamingOrRecordingAsync(ObsWebSocketClient client)
+    {
+        try
+        {
+            return await client.GetStreamActiveAsync() || await client.GetRecordActiveAsync();
+        }
+        catch
+        {
+            // If OBS cannot answer, prefer continuing for normal users instead of blocking setup.
+            return false;
+        }
+    }
+
+    private static async Task EnsureProfileAsync(ObsWebSocketClient client, string profileName, ObsNameList profiles)
+    {
+        if (!profiles.Names.Contains(profileName, StringComparer.OrdinalIgnoreCase))
+        {
+            await client.CreateProfileAsync(profileName);
+        }
+
+        if (!string.Equals(profiles.CurrentName, profileName, StringComparison.OrdinalIgnoreCase))
+        {
+            await client.SetCurrentProfileAsync(profileName);
+        }
+    }
+
+    private static async Task EnsureSceneCollectionAsync(ObsWebSocketClient client, string sceneCollectionName, ObsNameList collections)
+    {
+        if (!collections.Names.Contains(sceneCollectionName, StringComparer.OrdinalIgnoreCase))
+        {
+            await client.CreateSceneCollectionAsync(sceneCollectionName);
+        }
+
+        if (!string.Equals(collections.CurrentName, sceneCollectionName, StringComparison.OrdinalIgnoreCase))
+        {
+            await client.SetCurrentSceneCollectionAsync(sceneCollectionName);
+        }
     }
 
     private static async Task TrySetProfileParameterAsync(ObsWebSocketClient client, string category, string name, string value)

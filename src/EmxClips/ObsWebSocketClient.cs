@@ -6,6 +6,7 @@ using System.Text.Json;
 namespace EmxClips;
 
 public sealed record ObsPropertyListItem(string Name, string Value, bool Enabled);
+public sealed record ObsNameList(string CurrentName, IReadOnlyList<string> Names);
 
 public sealed class ObsWebSocketClient : IAsyncDisposable
 {
@@ -100,6 +101,24 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         return false;
     }
 
+    public Task<bool> GetStreamActiveAsync(CancellationToken cancellationToken = default) =>
+        GetOutputActiveAsync("GetStreamStatus", cancellationToken);
+
+    public Task<bool> GetRecordActiveAsync(CancellationToken cancellationToken = default) =>
+        GetOutputActiveAsync("GetRecordStatus", cancellationToken);
+
+    private async Task<bool> GetOutputActiveAsync(string requestType, CancellationToken cancellationToken)
+    {
+        var response = await SendRequestAsync(requestType, null, cancellationToken).ConfigureAwait(false);
+        if (response.TryGetProperty("responseData", out var responseData) &&
+            responseData.TryGetProperty("outputActive", out var outputActive))
+        {
+            return outputActive.GetBoolean();
+        }
+
+        return false;
+    }
+
     public Task StartReplayBufferAsync(CancellationToken cancellationToken = default) =>
         SendRequestNoDataAsync("StartReplayBuffer", cancellationToken);
 
@@ -117,6 +136,66 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
             parameterValue = value
         }, cancellationToken);
 
+    public async Task<ObsNameList> GetProfileListAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendRequestAsync("GetProfileList", null, cancellationToken).ConfigureAwait(false);
+        if (!response.TryGetProperty("responseData", out var responseData))
+        {
+            return new ObsNameList("", Array.Empty<string>());
+        }
+
+        var currentName = responseData.TryGetProperty("currentProfileName", out var current)
+            ? current.GetString() ?? ""
+            : "";
+        var names = responseData.TryGetProperty("profiles", out var profiles)
+            ? ReadStringArray(profiles)
+            : Array.Empty<string>();
+
+        return new ObsNameList(currentName, names);
+    }
+
+    public Task CreateProfileAsync(string profileName, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("CreateProfile", new
+        {
+            profileName
+        }, cancellationToken);
+
+    public Task SetCurrentProfileAsync(string profileName, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("SetCurrentProfile", new
+        {
+            profileName
+        }, cancellationToken);
+
+    public async Task<ObsNameList> GetSceneCollectionListAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendRequestAsync("GetSceneCollectionList", null, cancellationToken).ConfigureAwait(false);
+        if (!response.TryGetProperty("responseData", out var responseData))
+        {
+            return new ObsNameList("", Array.Empty<string>());
+        }
+
+        var currentName = responseData.TryGetProperty("currentSceneCollectionName", out var current)
+            ? current.GetString() ?? ""
+            : "";
+        var names = responseData.TryGetProperty("sceneCollections", out var collections)
+            ? ReadStringArray(collections)
+            : Array.Empty<string>();
+
+        return new ObsNameList(currentName, names);
+    }
+
+    public Task CreateSceneCollectionAsync(string sceneCollectionName, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("CreateSceneCollection", new
+        {
+            sceneCollectionName
+        }, cancellationToken);
+
+    public Task SetCurrentSceneCollectionAsync(string sceneCollectionName, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("SetCurrentSceneCollection", new
+        {
+            sceneCollectionName
+        }, cancellationToken);
+
     public async Task<string> GetCurrentProgramSceneAsync(CancellationToken cancellationToken = default)
     {
         var response = await SendRequestAsync("GetCurrentProgramScene", null, cancellationToken).ConfigureAwait(false);
@@ -127,6 +206,20 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         }
 
         return "";
+    }
+
+    private static IReadOnlyList<string> ReadStringArray(JsonElement array)
+    {
+        if (array.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        return array.EnumerateArray()
+            .Select(item => item.GetString())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToList();
     }
 
     public async Task<IReadOnlyList<string>> GetInputKindListAsync(CancellationToken cancellationToken = default)

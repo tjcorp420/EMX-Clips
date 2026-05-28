@@ -49,6 +49,7 @@ public sealed class DashboardForm : Form
     private readonly EmxCheckBox _autoLaunch = new();
     private readonly EmxCheckBox _autoStart = new();
     private readonly EmxCheckBox _minimizeObs = new();
+    private readonly EmxCheckBox _dedicatedObsWorkspace = new();
     private Keys _selectedHotkeyKey = Keys.F8;
     private HotkeyModifiers _selectedHotkeyModifiers = HotkeyModifiers.Control | HotkeyModifiers.Alt;
     private Keys _selectedToggleHotkeyKey = Keys.H;
@@ -471,7 +472,7 @@ public sealed class DashboardForm : Form
             Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 3,
-            RowCount = 21,
+            RowCount = 22,
             BackColor = EmxTheme.Panel
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
@@ -502,15 +503,18 @@ public sealed class DashboardForm : Form
         _autoLaunch.Text = "Auto-launch OBS";
         _autoStart.Text = "Auto-start replay buffer";
         _minimizeObs.Text = "Launch OBS minimized";
-        foreach (var checkBox in new[] { _autoLaunch, _autoStart, _minimizeObs, _captureMic, _useFirebaseCloudShare })
+        _dedicatedObsWorkspace.Text = "Streamer safe: use EMX OBS profile and scene collection";
+        foreach (var checkBox in new[] { _autoLaunch, _autoStart, _minimizeObs, _dedicatedObsWorkspace, _captureMic, _useFirebaseCloudShare })
         {
             StyleCheckBox(checkBox);
         }
 
+        AddRow(grid, 17, "OBS workspace", _dedicatedObsWorkspace, null);
+
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-        grid.Controls.Add(Label("Startup"), 0, 17);
+        grid.Controls.Add(Label("Startup"), 0, 18);
         var startup = Stack(_autoLaunch, _autoStart, _minimizeObs);
-        grid.Controls.Add(startup, 1, 17);
+        grid.Controls.Add(startup, 1, 18);
         grid.SetColumnSpan(startup, 2);
 
         var scroll = new Panel
@@ -987,6 +991,7 @@ public sealed class DashboardForm : Form
         _autoLaunch.Checked = _settings.AutoLaunchObs;
         _autoStart.Checked = _settings.AutoStartReplayBuffer;
         _minimizeObs.Checked = _settings.MinimizeObsToTray;
+        _dedicatedObsWorkspace.Checked = _settings.UseDedicatedObsWorkspace;
         _useFirebaseCloudShare.Checked = _settings.UseFirebaseCloudShare || FirebaseRemoteShare.IsConfigured(_settings);
         _firebaseApiKey.Text = _settings.FirebaseApiKey;
         _firebaseApiKey.PlaceholderText = "Firebase Web API key";
@@ -1017,6 +1022,7 @@ public sealed class DashboardForm : Form
         _settings.AutoLaunchObs = _autoLaunch.Checked;
         _settings.AutoStartReplayBuffer = _autoStart.Checked;
         _settings.MinimizeObsToTray = _minimizeObs.Checked;
+        _settings.UseDedicatedObsWorkspace = _dedicatedObsWorkspace.Checked;
         _settings.CaptureMicrophone = _captureMic.Checked;
         _settings.UseFirebaseCloudShare = _useFirebaseCloudShare.Checked;
         _settings.FirebaseApiKey = _firebaseApiKey.Text.Trim();
