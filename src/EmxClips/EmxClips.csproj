@@ -10,7 +10,7 @@
     <AssemblyName>EMX Clips</AssemblyName>
     <ApplicationIcon>Assets\emx-clips.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.1.5</Version>
+    <Version>0.1.6</Version>
     <Authors>EMX</Authors>
     <Product>EMX Clips</Product>
     <Description>Lightweight EMX gameplay clipping tray app.</Description>
@@ -20,5 +20,6 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
   </ItemGroup>
 </Project>

@@ -224,6 +224,27 @@ h2 {
   font-size: 0.88rem;
 }
 
+.local-link {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.local-link input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  background: rgba(2, 6, 7, 0.82);
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+  text-transform: none;
+}
+
 @media (min-width: 760px) {
   .actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));

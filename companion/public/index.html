@@ -47,7 +47,7 @@
       <article class="panel">
         <p class="label">Step 2</p>
         <h2>Pair phone</h2>
-        <p>Next build: EMX Clips will show a QR code. Scan it on your phone while both devices are on the same Wi-Fi.</p>
+        <p>Click Phone Share in EMX Clips. Scan the QR code or open the copied local link while both devices are on the same Wi-Fi.</p>
       </article>
       <article class="panel">
         <p class="label">Step 3</p>
@@ -60,13 +60,17 @@
       <div class="section-head">
         <div>
           <p class="label">Clip library</p>
-          <h2>Phone preview mockup</h2>
+          <h2>Use the local PC link for clips</h2>
         </div>
-        <span class="pill">Local pairing soon</span>
+        <span class="pill">Live in PC app</span>
       </div>
       <div class="clip-list" id="clipList"></div>
+      <label class="local-link">
+        <span>Paste PC companion link</span>
+        <input id="pcPortalUrl" placeholder="http://192.168.1.25:4788/">
+      </label>
       <div class="actions compact">
-        <button class="button primary" id="shareDemo" type="button">Test Share Flow</button>
+        <button class="button primary" id="openPcPortal" type="button">Open PC Clip Portal</button>
         <button class="button" id="copyLink" type="button">Copy Release Link</button>
       </div>
     </section>

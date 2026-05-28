@@ -26,6 +26,8 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly Icon _icon;
     private readonly System.Threading.Timer _bufferWatchdog;
     private ObsWebSocketClient? _obsClient;
+    private PhoneCompanionServer? _phoneCompanionServer;
+    private PhoneCompanionForm? _phoneCompanionForm;
     private DashboardForm? _dashboard;
     private bool _busy;
     private bool _watchdogBusy;
@@ -85,6 +87,7 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add("Save clip", null, (_, _) => SaveClipFromUi());
         menu.Items.Add("Copy latest clip", null, (_, _) => CopyLatestClip());
         menu.Items.Add("Open latest clip", null, (_, _) => OpenLatestClip());
+        menu.Items.Add("Phone companion", null, (_, _) => OpenPhoneCompanion());
         menu.Items.Add("Restart replay buffer", null, (_, _) => RunUiTask(RestartReplayBufferAsync));
         menu.Items.Add("Pause replay buffer", null, (_, _) => RunUiTask(StopReplayBufferAsync));
         menu.Items.Add("Check updates", null, (_, _) => RunUiTask(CheckForUpdatesAsync));
@@ -936,6 +939,33 @@ public sealed class TrayAppContext : ApplicationContext
         });
     }
 
+    private void OpenPhoneCompanion()
+    {
+        try
+        {
+            _phoneCompanionServer ??= new PhoneCompanionServer(_settings);
+            var url = _phoneCompanionServer.Start();
+
+            if (_phoneCompanionForm is null || _phoneCompanionForm.IsDisposed)
+            {
+                _phoneCompanionForm = new PhoneCompanionForm(url, _icon);
+                _phoneCompanionForm.FormClosed += (_, _) => _phoneCompanionForm = null;
+            }
+
+            _phoneCompanionForm.Show();
+            _phoneCompanionForm.Activate();
+            Clipboard.SetText(url);
+            ShowBalloon("Phone companion ready", $"Open {url} on your phone. Link copied.", ToolTipIcon.Info);
+            SetDashboardStatus($"Phone companion ready: open {url} on your phone while on the same Wi-Fi.");
+        }
+        catch (Exception ex)
+        {
+            var message = $"Could not start phone companion: {ex.Message}";
+            ShowBalloon("EMX Clips", message, ToolTipIcon.Error);
+            SetDashboardStatus(message);
+        }
+    }
+
     private void OpenLatestClip()
     {
         var clip = LatestClip();
@@ -990,6 +1020,7 @@ public sealed class TrayAppContext : ApplicationContext
         _dashboard.StopReplayBufferRequested += (_, _) => RunUiTask(StopReplayBufferAsync);
         _dashboard.AutoSetupCaptureRequested += (_, _) => RunUiTask(AutoSetupCaptureAsync);
         _dashboard.AutoSetupMicRequested += (_, _) => RunUiTask(AutoSetupMicrophoneAsync);
+        _dashboard.PhoneCompanionRequested += (_, _) => OpenPhoneCompanion();
         _dashboard.InstallObsRequested += (_, _) => RunUiTask(InstallObsAsync);
         _dashboard.CheckUpdatesRequested += (_, _) => RunUiTask(CheckForUpdatesAsync);
         _dashboard.HideToTrayRequested += (_, _) => HideDashboardToTray();
@@ -1115,6 +1146,8 @@ public sealed class TrayAppContext : ApplicationContext
         _clipHotkeyWindow.Dispose();
         _toggleHotkeyWindow.Dispose();
         _icon.Dispose();
+        _phoneCompanionForm?.Dispose();
+        _phoneCompanionServer?.Dispose();
         _obsClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         base.ExitThreadCore();
     }

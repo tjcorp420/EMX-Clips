@@ -2,14 +2,15 @@ const latestReleaseUrl = "https://github.com/tjcorp420/EMX-Clips/releases/latest
 const installButton = document.querySelector("#installButton");
 const installTitle = document.querySelector("#installTitle");
 const installText = document.querySelector("#installText");
-const shareDemo = document.querySelector("#shareDemo");
+const openPcPortal = document.querySelector("#openPcPortal");
+const pcPortalUrl = document.querySelector("#pcPortalUrl");
 const copyLink = document.querySelector("#copyLink");
 const clipList = document.querySelector("#clipList");
 
 const clips = [
   { title: "Replay 00:30", meta: "Ready for preview and share" },
   { title: "Replay 01:00", meta: "MP4 export for CapCut" },
-  { title: "Latest clip", meta: "Phone pairing lands next" }
+  { title: "Latest clip", meta: "Phone sharing is live from the PC app" }
 ];
 
 let installPrompt = null;
@@ -67,20 +68,17 @@ installButton?.addEventListener("click", async () => {
     : "Use your browser menu and choose Install app. On Chrome/Edge, the install icon may appear in the address bar.";
 });
 
-shareDemo?.addEventListener("click", async () => {
-  const shareData = {
-    title: "EMX Clips",
-    text: "Download EMX Clips and pair the phone companion.",
-    url: latestReleaseUrl
-  };
-
-  if (navigator.share) {
-    await navigator.share(shareData).catch(() => null);
+openPcPortal?.addEventListener("click", () => {
+  const value = pcPortalUrl?.value.trim();
+  if (!value) {
+    openPcPortal.textContent = "Paste Link First";
+    setTimeout(() => {
+      openPcPortal.textContent = "Open PC Clip Portal";
+    }, 1600);
     return;
   }
 
-  await navigator.clipboard?.writeText(latestReleaseUrl).catch(() => null);
-  shareDemo.textContent = "Link Copied";
+  window.location.href = value;
 });
 
 copyLink?.addEventListener("click", async () => {

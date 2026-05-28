@@ -91,6 +91,7 @@ public sealed class DashboardForm : Form
     public event EventHandler? StopReplayBufferRequested;
     public event EventHandler? AutoSetupCaptureRequested;
     public event EventHandler? AutoSetupMicRequested;
+    public event EventHandler? PhoneCompanionRequested;
     public event EventHandler? InstallObsRequested;
     public event EventHandler? CheckUpdatesRequested;
     public event EventHandler? HideToTrayRequested;
@@ -437,6 +438,7 @@ public sealed class DashboardForm : Form
         buttons.Controls.Add(Button("Play External", ButtonKind.Secondary, PlaySelectedClipExternal));
         buttons.Controls.Add(Button("Export MP4", ButtonKind.Primary, ExportSelectedClipAsMp4));
         buttons.Controls.Add(Button("Copy File", ButtonKind.Green, CopySelectedClipFile));
+        buttons.Controls.Add(Button("Phone Share", ButtonKind.Primary, () => PhoneCompanionRequested?.Invoke(this, EventArgs.Empty)));
         buttons.Controls.Add(Button("Export Copy", ButtonKind.Secondary, ExportSelectedClip));
         buttons.Controls.Add(Button("Open Location", ButtonKind.Secondary, OpenSelectedClipLocation));
         buttons.Controls.Add(Button("Delete", ButtonKind.Magenta, DeleteSelectedClip));
@@ -525,6 +527,7 @@ public sealed class DashboardForm : Form
             AutoSetupMicRequested?.Invoke(this, EventArgs.Empty);
         }));
         bottom.Controls.Add(Button("Check Updates", ButtonKind.Secondary, () => CheckUpdatesRequested?.Invoke(this, EventArgs.Empty)));
+        bottom.Controls.Add(Button("Phone Companion", ButtonKind.Secondary, () => PhoneCompanionRequested?.Invoke(this, EventArgs.Empty)));
         bottom.Controls.Add(Button("Quick Help", ButtonKind.Secondary, ShowQuickHelp));
         bottom.Controls.Add(Button("Refresh Clips", ButtonKind.Secondary, RefreshClips));
         root.Controls.Add(bottom, 0, 1);

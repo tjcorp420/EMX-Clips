@@ -30,6 +30,9 @@ public static class ClipLibrary
             .ToList();
     }
 
+    public static bool IsVideoFile(string path) =>
+        VideoExtensions.Contains(Path.GetExtension(path));
+
     public static string FormatSize(long bytes)
     {
         string[] units = ["B", "KB", "MB", "GB"];
@@ -45,4 +48,3 @@ public static class ClipLibrary
         return $"{size:0.#} {units[unit]}";
     }
 }
-

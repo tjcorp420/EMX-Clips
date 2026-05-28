@@ -22,6 +22,7 @@ The recommended first version uses OBS Studio's Replay Buffer as the capture and
 - Settings UI for OBS path, websocket port, password, clips folder, clip length, and hotkey
 - Clip library with in-app preview seeking, MP4 export, file copy, delete, open location, and open folder actions
 - Optional mic setup for voice and keyboard sounds
+- Phone Companion for viewing, opening, downloading, and sharing clips on a phone over the same Wi-Fi
 - Check Updates button backed by GitHub Releases
 
 ## How To Use It
@@ -36,6 +37,7 @@ The recommended first version uses OBS Studio's Replay Buffer as the capture and
 8. Minimize EMX Clips to tray and play.
 9. Use your clip hotkey in-game to save the last replay buffer clip.
 10. Use the Clips tab to preview, export MP4 for CapCut/TikTok, copy files, delete, or open saved clips.
+11. Click `Phone Share` to open the phone companion link/QR for moving clips to your phone.
 
 EMX Clips starts the replay buffer in the background after setup and watches it so it comes back on if it gets stopped. Pressing your clip hotkey saves the past clip length, like Medal. It does not record a new clip from that moment forward.
 
@@ -80,3 +82,7 @@ See [distribution notes](docs/DISTRIBUTION.md).
 ## Auto Updates
 
 See [auto-update plan](docs/AUTO_UPDATES.md). EMX Clips has a Check Updates button that reads `update-manifest.json` from GitHub Releases and can download, verify, replace, and restart the app.
+
+## Phone Companion
+
+See [phone companion notes](docs/PHONE_COMPANION.md). The phone companion runs from the PC app and serves clips on the local Wi-Fi network. MP4 clips are best for iPhone/Android playback.
