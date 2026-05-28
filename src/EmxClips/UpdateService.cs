@@ -30,6 +30,8 @@ public sealed class UpdateManifest
 
 public static class UpdateService
 {
+    public const string LatestReleaseUrl = "https://github.com/tjcorp420/EMX-Clips/releases/latest";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -157,6 +159,15 @@ del "%~f0"
         Process.Start(new ProcessStartInfo
         {
             FileName = url,
+            UseShellExecute = true
+        });
+    }
+
+    public static void OpenLatestReleasePage()
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = LatestReleaseUrl,
             UseShellExecute = true
         });
     }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Specialized;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Runtime.InteropServices;
@@ -75,9 +76,12 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add("Open EMX Clips", null, (_, _) => OpenDashboard());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Save clip", null, (_, _) => SaveClipFromUi());
+        menu.Items.Add("Copy latest clip", null, (_, _) => CopyLatestClip());
+        menu.Items.Add("Open latest clip", null, (_, _) => OpenLatestClip());
         menu.Items.Add("Restart replay buffer", null, (_, _) => RunUiTask(RestartReplayBufferAsync));
         menu.Items.Add("Pause replay buffer", null, (_, _) => RunUiTask(StopReplayBufferAsync));
         menu.Items.Add("Check updates", null, (_, _) => RunUiTask(CheckForUpdatesAsync));
+        menu.Items.Add("Open release page", null, (_, _) => UpdateService.OpenLatestReleasePage());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open clips folder", null, (_, _) => OpenClipsFolder());
         menu.Items.Add("Settings", null, (_, _) => OpenDashboard());
@@ -633,6 +637,39 @@ public sealed class TrayAppContext : ApplicationContext
             UseShellExecute = true
         });
     }
+
+    private void OpenLatestClip()
+    {
+        var clip = LatestClip();
+        if (clip is null)
+        {
+            ShowBalloon("EMX Clips", "No clips saved yet.", ToolTipIcon.Info);
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = clip.FullPath,
+            UseShellExecute = true
+        });
+    }
+
+    private void CopyLatestClip()
+    {
+        var clip = LatestClip();
+        if (clip is null)
+        {
+            ShowBalloon("EMX Clips", "No clips saved yet.", ToolTipIcon.Info);
+            return;
+        }
+
+        var files = new StringCollection { clip.FullPath };
+        Clipboard.SetFileDropList(files);
+        ShowBalloon("Clip copied", "Paste it into Discord, folders, or an editor import window.", ToolTipIcon.Info);
+    }
+
+    private ClipFile? LatestClip() =>
+        ClipLibrary.Load(_settings.ClipsFolder).FirstOrDefault();
 
     private void OpenDashboard()
     {

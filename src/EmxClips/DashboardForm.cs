@@ -82,12 +82,14 @@ public sealed class DashboardForm : Form
 
     public void RefreshClips()
     {
+        var clips = ClipLibrary.Load(_settings.ClipsFolder);
+
         _clips.BeginUpdate();
         try
         {
             _clips.Items.Clear();
 
-            foreach (var clip in ClipLibrary.Load(_settings.ClipsFolder))
+            foreach (var clip in clips)
             {
                 var item = new ListViewItem(clip.Name)
                 {
@@ -104,6 +106,11 @@ public sealed class DashboardForm : Form
         {
             _clips.EndUpdate();
         }
+
+        var totalBytes = clips.Sum(clip => clip.SizeBytes);
+        _status.Text = clips.Count == 0
+            ? "No clips yet. Minimize to tray, play, then press your clip hotkey."
+            : $"{clips.Count} clips loaded - {ClipLibrary.FormatSize(totalBytes)} total.";
     }
 
     public void SetStatus(string message)
@@ -198,7 +205,7 @@ public sealed class DashboardForm : Form
 
         var version = new Label
         {
-            Text = "EMX replay buffer",
+            Text = $"EMX replay buffer v{AppVersion()}",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
             ForeColor = EmxTheme.MutedText,
@@ -312,7 +319,7 @@ public sealed class DashboardForm : Form
         });
         titleStack.Controls.Add(new Label
         {
-            Text = "Replay buffer control, clip library, and exports",
+            Text = "Replay buffer, clip library, MP4 exports, and sharing",
             AutoSize = true,
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
             ForeColor = EmxTheme.MutedText,
@@ -1139,6 +1146,12 @@ public sealed class DashboardForm : Form
 
         var localPath = Path.Combine(AppContext.BaseDirectory, "Assets", "emx-logo.png");
         return File.Exists(localPath) ? Image.FromFile(localPath) : null;
+    }
+
+    private static string AppVersion()
+    {
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        return version is null ? "0.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
     }
 
     private void ShowQuickHelp()
