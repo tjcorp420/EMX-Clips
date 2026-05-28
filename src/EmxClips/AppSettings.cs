@@ -40,7 +40,7 @@ public sealed class AppSettings
     public bool CaptureMicrophone { get; set; } = true;
     public string MicrophoneDeviceId { get; set; } = "default";
     public string MicrophoneDeviceName { get; set; } = "Default";
-    public bool UseFirebaseCloudShare { get; set; }
+    public bool UseFirebaseCloudShare { get; set; } = true;
     public string FirebaseApiKey { get; set; } = DefaultFirebaseApiKey;
     public string FirebaseStorageBucket { get; set; } = DefaultFirebaseStorageBucket;
     public string FirebaseDatabaseUrl { get; set; } = DefaultFirebaseDatabaseUrl;

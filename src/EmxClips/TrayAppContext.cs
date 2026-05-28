@@ -945,8 +945,14 @@ public sealed class TrayAppContext : ApplicationContext
     {
         try
         {
-            if (_settings.UseFirebaseCloudShare)
+            if (FirebaseRemoteShare.IsConfigured(_settings))
             {
+                if (!_settings.UseFirebaseCloudShare)
+                {
+                    _settings.UseFirebaseCloudShare = true;
+                    _settings.Save();
+                }
+
                 await OpenFirebaseCloudCompanionAsync().ConfigureAwait(true);
                 return;
             }
@@ -964,8 +970,8 @@ public sealed class TrayAppContext : ApplicationContext
             _phoneCompanionForm.Show();
             _phoneCompanionForm.Activate();
             Clipboard.SetText(companionUrl);
-            ShowBalloon("Phone companion ready", "Vercel companion link copied. Scan the QR, then tap Open PC Clip Portal.", ToolTipIcon.Info);
-            SetDashboardStatus("Phone companion ready: scan the Vercel QR on your phone, then open the PC clip portal while on the same Wi-Fi.");
+            ShowBalloon("Phone companion ready", "Local fallback link copied. Firebase Remote Share is not configured.", ToolTipIcon.Info);
+            SetDashboardStatus("Phone companion local fallback ready. Add Firebase API key and Realtime Database URL to use in-app Vercel clip viewing.");
         }
         catch (Exception ex)
         {

@@ -27,6 +27,8 @@ https://emxclips-86f00-default-rtdb.firebaseio.com
 
 EMX Clips already includes the default API key and Realtime Database URL for the `emxclips-86f00` project.
 
+In v0.1.11 and newer, Phone Share prefers Firebase Remote Share automatically when the Firebase API key and Realtime Database URL are present. The local `http://10.x.x.x:4788/` portal is only a fallback.
+
 ## Realtime Database Rules
 
 Use these rules after basic test mode is working:

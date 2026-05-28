@@ -987,7 +987,7 @@ public sealed class DashboardForm : Form
         _autoLaunch.Checked = _settings.AutoLaunchObs;
         _autoStart.Checked = _settings.AutoStartReplayBuffer;
         _minimizeObs.Checked = _settings.MinimizeObsToTray;
-        _useFirebaseCloudShare.Checked = _settings.UseFirebaseCloudShare;
+        _useFirebaseCloudShare.Checked = _settings.UseFirebaseCloudShare || FirebaseRemoteShare.IsConfigured(_settings);
         _firebaseApiKey.Text = _settings.FirebaseApiKey;
         _firebaseApiKey.PlaceholderText = "Firebase Web API key";
         _firebaseStorageBucket.Text = _settings.FirebaseDatabaseUrl;
