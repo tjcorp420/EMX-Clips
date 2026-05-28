@@ -12,6 +12,7 @@ public sealed class TrayAppContext : ApplicationContext
     private const string DisplayCaptureInputName = "EMX Display Capture";
     private const string DefaultObsMicInputName = "Mic/Aux";
     private const string EmxMicInputName = "EMX Mic Capture";
+    private const string ObsMicInputKind = "wasapi_input_capture";
 
     private readonly AppSettings _settings;
     private readonly Control _uiInvoker;
@@ -439,12 +440,26 @@ public sealed class TrayAppContext : ApplicationContext
         var client = await GetObsClientAsync();
         await ApplyMicrophoneSettingsAsync(client, createIfMissing: true);
 
+        if (_settings.CaptureMicrophone)
+        {
+            var wasActive = await client.GetReplayBufferActiveAsync();
+            if (wasActive)
+            {
+                await client.StopReplayBufferAsync();
+                await client.StartReplayBufferAsync();
+            }
+            else if (_settings.AutoStartReplayBuffer)
+            {
+                await client.StartReplayBufferAsync();
+            }
+        }
+
         var deviceName = string.IsNullOrWhiteSpace(_settings.MicrophoneDeviceName)
             ? "selected microphone"
             : _settings.MicrophoneDeviceName;
         var state = _settings.CaptureMicrophone ? "included in" : "muted for";
         ShowBalloon("Mic ready", $"OBS mic capture is set to {deviceName}.", ToolTipIcon.Info);
-        SetDashboardStatus($"Mic ready: {deviceName} is {state} new clips. Use Test Mic while tapping keys or talking.");
+        SetDashboardStatus($"Mic ready: {deviceName} is {state} new clips. Wait {_settings.ReplayBufferSeconds} seconds, then save a fresh test clip.");
     }
 
     private async Task TryApplyMicrophoneSettingsAsync(ObsWebSocketClient client)
@@ -461,43 +476,100 @@ public sealed class TrayAppContext : ApplicationContext
 
     private async Task ApplyMicrophoneSettingsAsync(ObsWebSocketClient client, bool createIfMissing)
     {
-        var inputName = await ResolveMicrophoneInputNameAsync(client);
-        if (inputName is null && createIfMissing)
+        if (!_settings.CaptureMicrophone)
         {
-            var sceneName = await client.GetCurrentProgramSceneAsync();
-            if (string.IsNullOrWhiteSpace(sceneName))
+            var mutedInput = await ResolveMicrophoneInputNameAsync(client);
+            if (mutedInput is not null)
             {
-                throw new InvalidOperationException("EMX could not find the active OBS scene for mic setup.");
+                await client.SetInputMuteAsync(mutedInput, inputMuted: true);
             }
 
-            inputName = EmxMicInputName;
-            await client.CreateInputAsync(sceneName, inputName, "wasapi_input_capture", new
-            {
-                device_id = ResolveMicrophoneDeviceId()
-            });
+            return;
         }
 
+        var inputName = await ResolveEmxMicrophoneInputAsync(client, createIfMissing);
         if (inputName is null)
         {
             return;
         }
 
+        var deviceId = await ResolveObsMicrophoneDeviceIdAsync(client, inputName);
         await client.SetInputSettingsAsync(inputName, new
         {
-            device_id = ResolveMicrophoneDeviceId()
+            device_id = deviceId
         }, overlay: false);
 
-        await client.SetInputMuteAsync(inputName, !_settings.CaptureMicrophone);
+        await client.SetInputVolumeAsync(inputName, inputVolumeMul: 1.0);
+        await client.SetInputAudioTracksAsync(inputName, BuildEnabledAudioTracks());
+        await client.SetInputMuteAsync(inputName, inputMuted: false);
+    }
+
+    private async Task<string?> ResolveEmxMicrophoneInputAsync(ObsWebSocketClient client, bool createIfMissing)
+    {
+        if (await client.InputExistsAsync(EmxMicInputName))
+        {
+            if (createIfMissing)
+            {
+                await EnsureSourceInCurrentSceneAsync(client, EmxMicInputName);
+            }
+
+            return EmxMicInputName;
+        }
+
+        if (!createIfMissing)
+        {
+            return await ResolveMicrophoneInputNameAsync(client);
+        }
+
+        var sceneName = await client.GetCurrentProgramSceneAsync();
+        if (string.IsNullOrWhiteSpace(sceneName))
+        {
+            throw new InvalidOperationException("EMX could not find the active OBS scene for mic setup.");
+        }
+
+        await client.CreateInputAsync(sceneName, EmxMicInputName, ObsMicInputKind, new
+        {
+            device_id = "default"
+        });
+
+        await EnsureSourceInCurrentSceneAsync(client, EmxMicInputName);
+        return EmxMicInputName;
+    }
+
+    private static async Task EnsureSourceInCurrentSceneAsync(ObsWebSocketClient client, string sourceName)
+    {
+        var sceneName = await client.GetCurrentProgramSceneAsync();
+        if (string.IsNullOrWhiteSpace(sceneName))
+        {
+            return;
+        }
+
+        var sceneItemId = await client.GetSceneItemIdAsync(sceneName, sourceName);
+        if (sceneItemId is null)
+        {
+            await client.CreateSceneItemAsync(sceneName, sourceName);
+            sceneItemId = await client.GetSceneItemIdAsync(sceneName, sourceName);
+        }
+
+        if (sceneItemId is not null)
+        {
+            await client.SetSceneItemEnabledAsync(sceneName, sceneItemId.Value, sceneItemEnabled: true);
+        }
     }
 
     private async Task<string?> ResolveMicrophoneInputNameAsync(ObsWebSocketClient client)
     {
+        if (await client.InputExistsAsync(EmxMicInputName))
+        {
+            return EmxMicInputName;
+        }
+
         if (await client.InputExistsAsync(DefaultObsMicInputName))
         {
             return DefaultObsMicInputName;
         }
 
-        return await client.InputExistsAsync(EmxMicInputName) ? EmxMicInputName : null;
+        return null;
     }
 
     private string ResolveMicrophoneDeviceId()
@@ -508,6 +580,70 @@ public sealed class TrayAppContext : ApplicationContext
         }
 
         return _settings.MicrophoneDeviceId;
+    }
+
+    private async Task<string> ResolveObsMicrophoneDeviceIdAsync(ObsWebSocketClient client, string inputName)
+    {
+        var requestedId = ResolveMicrophoneDeviceId();
+        try
+        {
+            var items = await client.GetInputListPropertyItemsAsync(inputName, "device_id");
+            var exact = items.FirstOrDefault(item =>
+                item.Enabled &&
+                string.Equals(item.Value, requestedId, StringComparison.OrdinalIgnoreCase));
+            if (exact is not null)
+            {
+                return exact.Value;
+            }
+
+            var requestedName = NormalizeDeviceName(_settings.MicrophoneDeviceName);
+            if (!string.IsNullOrWhiteSpace(requestedName))
+            {
+                var byName = items.FirstOrDefault(item =>
+                    item.Enabled &&
+                    NormalizeDeviceName(item.Name).Contains(requestedName, StringComparison.OrdinalIgnoreCase));
+                if (byName is not null)
+                {
+                    return byName.Value;
+                }
+            }
+
+            var firstEnabled = items.FirstOrDefault(item => item.Enabled);
+            if (string.Equals(requestedId, "default", StringComparison.OrdinalIgnoreCase) && firstEnabled is not null)
+            {
+                return firstEnabled.Value;
+            }
+        }
+        catch
+        {
+            // If OBS refuses the property list, try the Windows endpoint id directly.
+        }
+
+        return requestedId;
+    }
+
+    private static IReadOnlyDictionary<string, bool> BuildEnabledAudioTracks() => new Dictionary<string, bool>
+    {
+        ["1"] = true,
+        ["2"] = true,
+        ["3"] = true,
+        ["4"] = true,
+        ["5"] = true,
+        ["6"] = true
+    };
+
+    private static string NormalizeDeviceName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "";
+        }
+
+        var chars = value
+            .ToLowerInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray();
+        return new string(chars);
     }
 
     private static Dictionary<string, object> BuildDisplayCaptureSettings(string? monitorId)

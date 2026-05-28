@@ -5,6 +5,8 @@ using System.Text.Json;
 
 namespace EmxClips;
 
+public sealed record ObsPropertyListItem(string Name, string Value, bool Enabled);
+
 public sealed class ObsWebSocketClient : IAsyncDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -182,7 +184,65 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
             inputMuted
         }, cancellationToken);
 
-    public async Task<string?> GetPreferredInputListPropertyValueAsync(string inputName, string propertyName, CancellationToken cancellationToken = default)
+    public Task SetInputVolumeAsync(string inputName, double inputVolumeMul, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("SetInputVolume", new
+        {
+            inputName,
+            inputVolumeMul
+        }, cancellationToken);
+
+    public Task SetInputAudioTracksAsync(string inputName, IReadOnlyDictionary<string, bool> inputAudioTracks, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("SetInputAudioTracks", new
+        {
+            inputName,
+            inputAudioTracks
+        }, cancellationToken);
+
+    public async Task<int?> GetSceneItemIdAsync(string sceneName, string sourceName, CancellationToken cancellationToken = default)
+    {
+        var response = await SendRequestAsync("GetSceneItemList", new
+        {
+            sceneName
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (!response.TryGetProperty("responseData", out var responseData) ||
+            !responseData.TryGetProperty("sceneItems", out var sceneItems))
+        {
+            return null;
+        }
+
+        foreach (var item in sceneItems.EnumerateArray())
+        {
+            if (!item.TryGetProperty("sourceName", out var sourceNameElement) ||
+                !string.Equals(sourceNameElement.GetString(), sourceName, StringComparison.OrdinalIgnoreCase) ||
+                !item.TryGetProperty("sceneItemId", out var sceneItemId))
+            {
+                continue;
+            }
+
+            return sceneItemId.GetInt32();
+        }
+
+        return null;
+    }
+
+    public Task CreateSceneItemAsync(string sceneName, string sourceName, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("CreateSceneItem", new
+        {
+            sceneName,
+            sourceName,
+            sceneItemEnabled = true
+        }, cancellationToken);
+
+    public Task SetSceneItemEnabledAsync(string sceneName, int sceneItemId, bool sceneItemEnabled, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("SetSceneItemEnabled", new
+        {
+            sceneName,
+            sceneItemId,
+            sceneItemEnabled
+        }, cancellationToken);
+
+    public async Task<IReadOnlyList<ObsPropertyListItem>> GetInputListPropertyItemsAsync(string inputName, string propertyName, CancellationToken cancellationToken = default)
     {
         var response = await SendRequestAsync("GetInputPropertiesListPropertyItems", new
         {
@@ -193,40 +253,55 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         if (!response.TryGetProperty("responseData", out var responseData) ||
             !responseData.TryGetProperty("propertyItems", out var propertyItems))
         {
-            return null;
+            return Array.Empty<ObsPropertyListItem>();
         }
 
-        string? firstAvailable = null;
-
+        var items = new List<ObsPropertyListItem>();
         foreach (var item in propertyItems.EnumerateArray())
         {
-            if (item.TryGetProperty("itemEnabled", out var enabled) &&
-                enabled.ValueKind == JsonValueKind.False)
-            {
-                continue;
-            }
-
             if (!item.TryGetProperty("itemValue", out var value))
             {
                 continue;
             }
 
-            var text = value.ValueKind == JsonValueKind.String
+            var itemValue = value.ValueKind == JsonValueKind.String
                 ? value.GetString()
                 : value.ToString();
 
-            if (!string.IsNullOrWhiteSpace(text))
+            if (string.IsNullOrWhiteSpace(itemValue))
             {
-                firstAvailable ??= text;
+                continue;
+            }
 
-                var name = item.TryGetProperty("itemName", out var itemName) && itemName.ValueKind == JsonValueKind.String
-                    ? itemName.GetString()
-                    : null;
+            var itemName = item.TryGetProperty("itemName", out var name) && name.ValueKind == JsonValueKind.String
+                ? name.GetString() ?? itemValue
+                : itemValue;
 
-                if (name?.Contains("Primary", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    return text;
-                }
+            var enabled = !item.TryGetProperty("itemEnabled", out var enabledElement) ||
+                enabledElement.ValueKind != JsonValueKind.False;
+
+            items.Add(new ObsPropertyListItem(itemName, itemValue, enabled));
+        }
+
+        return items;
+    }
+
+    public async Task<string?> GetPreferredInputListPropertyValueAsync(string inputName, string propertyName, CancellationToken cancellationToken = default)
+    {
+        var propertyItems = await GetInputListPropertyItemsAsync(inputName, propertyName, cancellationToken).ConfigureAwait(false);
+        string? firstAvailable = null;
+
+        foreach (var item in propertyItems)
+        {
+            if (!item.Enabled)
+            {
+                continue;
+            }
+
+            firstAvailable ??= item.Value;
+            if (item.Name.Contains("Primary", StringComparison.OrdinalIgnoreCase))
+            {
+                return item.Value;
             }
         }
 

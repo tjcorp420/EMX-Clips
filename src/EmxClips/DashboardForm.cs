@@ -36,15 +36,15 @@ public sealed class DashboardForm : Form
     private readonly TextBox _hotkeyDisplay = new();
     private readonly TextBox _toggleHotkeyDisplay = new();
     private readonly ComboBox _microphone = new();
-    private readonly CheckBox _captureMic = new();
+    private readonly EmxCheckBox _captureMic = new();
     private readonly ProgressBar _micLevel = new();
     private readonly Label _micLevelText = new();
     private readonly System.Windows.Forms.Timer _micTestTimer = new() { Interval = 120 };
     private readonly Label _obsStatus = new();
     private readonly Panel _pageHost = new();
-    private readonly CheckBox _autoLaunch = new();
-    private readonly CheckBox _autoStart = new();
-    private readonly CheckBox _minimizeObs = new();
+    private readonly EmxCheckBox _autoLaunch = new();
+    private readonly EmxCheckBox _autoStart = new();
+    private readonly EmxCheckBox _minimizeObs = new();
     private Keys _selectedHotkeyKey = Keys.F8;
     private HotkeyModifiers _selectedHotkeyModifiers = HotkeyModifiers.Control | HotkeyModifiers.Alt;
     private Keys _selectedToggleHotkeyKey = Keys.H;
@@ -55,6 +55,7 @@ public sealed class DashboardForm : Form
     private Button? _settingsTabButton;
     private Button? _micTestButton;
     private bool _micTestRunning;
+    private bool _loadingMicrophones;
 
     public DashboardForm(AppSettings settings, Icon icon)
     {
@@ -74,6 +75,13 @@ public sealed class DashboardForm : Form
 
         Controls.Add(BuildLayout());
         _micTestTimer.Tick += (_, _) => UpdateMicTestMeter();
+        _microphone.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_loadingMicrophones && _captureMic.Checked)
+            {
+                SetStatus("Mic changed. Click Auto Setup Mic so OBS uses this device in new clips.");
+            }
+        };
         LoadSettingsIntoControls();
         RefreshClips();
     }
@@ -728,7 +736,17 @@ public sealed class DashboardForm : Form
 
         foreach (var control in controls)
         {
-            control.AutoSize = true;
+            if (control is EmxCheckBox checkBox)
+            {
+                checkBox.AutoSize = false;
+                checkBox.Width = Math.Max(180, TextRenderer.MeasureText(checkBox.Text, checkBox.Font).Width + 42);
+                checkBox.Height = 28;
+            }
+            else
+            {
+                control.AutoSize = true;
+            }
+
             control.Margin = new Padding(0, 10, 18, 0);
             panel.Controls.Add(control);
         }
@@ -912,6 +930,8 @@ public sealed class DashboardForm : Form
         checkBox.ForeColor = EmxTheme.Text;
         checkBox.BackColor = Color.Transparent;
         checkBox.FlatStyle = FlatStyle.Flat;
+        checkBox.AutoSize = false;
+        checkBox.Height = 28;
         checkBox.FlatAppearance.BorderColor = EmxTheme.Magenta;
         checkBox.FlatAppearance.CheckedBackColor = EmxTheme.MagentaDark;
     }
@@ -939,7 +959,16 @@ public sealed class DashboardForm : Form
         _password.PlaceholderText = "Password from OBS WebSocket settings";
         _captureMic.Text = "Include selected microphone in clips";
         _captureMic.Checked = _settings.CaptureMicrophone;
-        _captureMic.CheckedChanged += (_, _) => RefreshMicControlsState();
+        _captureMic.CheckedChanged += (_, _) =>
+        {
+            RefreshMicControlsState();
+            if (IsHandleCreated)
+            {
+                SetStatus(_captureMic.Checked
+                    ? "Mic on. Click Save Settings or Auto Setup Mic so OBS uses it in new clips."
+                    : "Mic off. Click Save Settings to mute EMX mic capture in OBS.");
+            }
+        };
         LoadMicrophoneDevices();
         _autoLaunch.Checked = _settings.AutoLaunchObs;
         _autoStart.Checked = _settings.AutoStartReplayBuffer;
@@ -1005,6 +1034,7 @@ public sealed class DashboardForm : Form
             : _settings.MicrophoneDeviceId;
 
         _microphone.BeginUpdate();
+        _loadingMicrophones = true;
         try
         {
             _microphone.Items.Clear();
@@ -1023,6 +1053,7 @@ public sealed class DashboardForm : Form
         }
         finally
         {
+            _loadingMicrophones = false;
             _microphone.EndUpdate();
         }
     }
@@ -1034,7 +1065,7 @@ public sealed class DashboardForm : Form
             _micTestTimer.Stop();
             _micTestRunning = false;
             _micLevel.Value = 0;
-            _micLevelText.Text = "Idle";
+            _micLevelText.Text = _captureMic.Checked ? "Ready" : "Mic Off";
             if (_micTestButton is not null) _micTestButton.Text = "Test Mic";
             return;
         }
@@ -1085,7 +1116,12 @@ public sealed class DashboardForm : Form
         var enabled = _captureMic.Checked;
         _microphone.Enabled = enabled;
         _micLevel.Enabled = enabled;
-        _micLevelText.Text = enabled ? "Idle" : "Mic Off";
+        if (_micTestButton is not null)
+        {
+            _micTestButton.Enabled = enabled;
+        }
+
+        _micLevelText.Text = enabled ? "Ready" : "Mic Off";
         if (!enabled && _micTestRunning)
         {
             ToggleMicTest();
@@ -1372,6 +1408,87 @@ internal sealed class NoWheelNumericUpDown : NumericUpDown
         if (e is HandledMouseEventArgs handled)
         {
             handled.Handled = true;
+        }
+    }
+}
+
+internal sealed class EmxCheckBox : CheckBox
+{
+    public EmxCheckBox()
+    {
+        DoubleBuffered = true;
+        Cursor = Cursors.Hand;
+        FlatStyle = FlatStyle.Flat;
+        Appearance = Appearance.Button;
+        TextAlign = ContentAlignment.MiddleLeft;
+        UseVisualStyleBackColor = false;
+        Font = new Font("Segoe UI", 9.2f, FontStyle.Bold);
+        Height = 28;
+    }
+
+    protected override void OnCheckedChanged(EventArgs e)
+    {
+        base.OnCheckedChanged(e);
+        Invalidate();
+    }
+
+    protected override void OnEnabledChanged(EventArgs e)
+    {
+        base.OnEnabledChanged(e);
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var parentBack = Parent?.BackColor ?? EmxTheme.SurfaceAlt;
+        e.Graphics.Clear(parentBack);
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+        var box = new Rectangle(4, Math.Max(4, (Height - 18) / 2), 18, 18);
+        var borderColor = Enabled
+            ? (Checked ? EmxTheme.Green : EmxTheme.Magenta)
+            : Color.FromArgb(70, EmxTheme.MutedText);
+        var fillColor = Checked
+            ? (Enabled ? EmxTheme.Green : Color.FromArgb(80, EmxTheme.Green))
+            : EmxTheme.Surface;
+
+        using (var fill = new SolidBrush(fillColor))
+        using (var border = new Pen(borderColor, 1.4f))
+        {
+            e.Graphics.FillRectangle(fill, box);
+            e.Graphics.DrawRectangle(border, box);
+        }
+
+        if (Checked)
+        {
+            using var check = new Pen(Color.Black, 2.2f)
+            {
+                StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                EndCap = System.Drawing.Drawing2D.LineCap.Round
+            };
+            e.Graphics.DrawLines(check, new[]
+            {
+                new Point(box.Left + 4, box.Top + 9),
+                new Point(box.Left + 8, box.Top + 13),
+                new Point(box.Right - 4, box.Top + 5)
+            });
+        }
+
+        var textBounds = new Rectangle(30, 0, Width - 32, Height);
+        TextRenderer.DrawText(
+            e.Graphics,
+            Text,
+            Font,
+            textBounds,
+            Enabled ? EmxTheme.Text : EmxTheme.MutedText,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+        if (Focused)
+        {
+            using var focus = new Pen(Color.FromArgb(120, EmxTheme.GreenGlow), 1);
+            var focusBounds = ClientRectangle;
+            focusBounds.Inflate(-1, -1);
+            e.Graphics.DrawRectangle(focus, focusBounds);
         }
     }
 }
