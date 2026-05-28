@@ -99,8 +99,8 @@
     }
 
     .logo {
-      width: 165px;
-      height: 165px;
+      width: 245px;
+      height: 150px;
       object-fit: contain;
       margin: 0 auto 6px;
       filter: drop-shadow(0 0 28px rgba(114, 255, 0, 0.62)) drop-shadow(0 0 35px rgba(236, 25, 255, 0.42));
@@ -313,6 +313,7 @@
       left: 0;
       right: 0;
       bottom: 0;
+      z-index: 5;
       height: 70px;
       padding: 0 66px;
       display: grid;
@@ -373,24 +374,25 @@
     <div class="slash magenta"></div>
 
     <section class="hero">
-      <img class="logo" src="../src/EmxClips/Assets/emx-logo.png" alt="EMX Tweaks logo">
+      <img class="logo" src="../companion/public/icons/emx-logo.png" alt="EMX logo">
       <div class="brand"><span class="emx">EMX</span> <span class="clips">CLIPS</span></div>
       <div class="subtitle">Replay buffer for smooth game clips</div>
 
       <div class="version">
-        <div class="big">V0.1.5</div>
-        <div class="label">Ready For Friends</div>
-        <div class="tag">Medal-style clipping, EMX branded</div>
+        <div class="big">V0.1.8</div>
+        <div class="label">Phone Companion Live</div>
+        <div class="tag">Medal-style clips, QR sharing, EMX branded</div>
       </div>
     </section>
 
     <section class="glass">
       <div class="section-title">What It Does</div>
       <div class="item"><div class="hex">HOT</div><div class="copy">Press your hotkey to save the last 30 to 60 seconds</div></div>
-      <div class="item"><div class="hex">OBS</div><div class="copy">OBS-powered capture with lower FPS impact</div></div>
-      <div class="item"><div class="hex">MIC</div><div class="copy">Game audio plus optional mic capture for reactions</div></div>
-      <div class="item"><div class="hex">MP4</div><div class="copy">Preview, export MP4, copy, and open clip folder</div></div>
-      <div class="item"><div class="hex">UPD</div><div class="copy">Built-in update checker pulls latest EMX release</div></div>
+      <div class="item"><div class="hex">OBS</div><div class="copy">Auto setup OBS capture with low FPS impact</div></div>
+      <div class="item"><div class="hex">MIC</div><div class="copy">Optional mic capture with in-app signal testing</div></div>
+      <div class="item"><div class="hex">MP4</div><div class="copy">Preview, scrub, export MP4, and use clips in CapCut</div></div>
+      <div class="item"><div class="hex">QR</div><div class="copy">Vercel phone companion with built-in QR scanner</div></div>
+      <div class="item"><div class="hex">UPD</div><div class="copy">Verified updater pulls latest EMX release safely</div></div>
     </section>
 
     <section class="glass how">
@@ -400,19 +402,19 @@
         <div class="step">Click Auto Setup Capture and Auto Setup Mic</div>
         <div class="step">Minimize to tray and play like normal</div>
         <div class="step">Press your clip hotkey when something happens</div>
-        <div class="step">Preview or export MP4 for CapCut and TikTok</div>
+        <div class="step">Export MP4 or scan Phone Share for mobile clips</div>
       </div>
     </section>
 
     <div class="cta">
       <strong>EMX Clips</strong>
-      <span>Download Available Now</span>
+      <span>Download + Phone Share Live</span>
     </div>
 
     <footer class="footer">
       <div class="left">@EMX TWEAKS</div>
-      <img class="center-logo" src="../src/EmxClips/Assets/emx-logo.png" alt="">
-      <div class="right">V0.1.5</div>
+      <img class="center-logo" src="../companion/public/icons/emx-logo.png" alt="">
+      <div class="right">V0.1.8</div>
     </footer>
   </main>
 </body>

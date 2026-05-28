@@ -1,28 +1,32 @@
 const path = require("node:path");
-const { chromium } = require("playwright");
+const { mkdtempSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { spawnSync } = require("node:child_process");
 
 async function main() {
   const root = path.resolve(__dirname, "..");
   const input = path.join(root, "marketing", "emx-clips-release-card.html");
-  const output = path.join(root, "marketing", "emx-clips-release-card-v0.1.5.png");
+  const output = path.join(root, "marketing", "emx-clips-release-card-v0.1.8.png");
+  const chrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  const profile = mkdtempSync(path.join(tmpdir(), "emx-card-chrome-"));
 
-  const browser = await chromium.launch({
-    executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    args: ["--allow-file-access-from-files"]
-  });
+  const result = spawnSync(chrome, [
+    "--headless=new",
+    "--allow-file-access-from-files",
+    "--disable-gpu",
+    "--force-device-scale-factor=1",
+    "--hide-scrollbars",
+    `--user-data-dir=${profile}`,
+    "--window-size=1080,1920",
+    `--screenshot=${output}`,
+    `file://${input.replaceAll("\\", "/")}`
+  ], { encoding: "utf8" });
 
-  try {
-    const page = await browser.newPage({
-      viewport: { width: 1080, height: 1920 },
-      deviceScaleFactor: 1
-    });
-
-    await page.goto(`file://${input.replaceAll("\\", "/")}`, { waitUntil: "networkidle" });
-    await page.screenshot({ path: output, type: "png", fullPage: false });
-    console.log(output);
-  } finally {
-    await browser.close();
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || `Chrome exited with ${result.status}`);
   }
+
+  console.log(output);
 }
 
 main().catch(error => {
