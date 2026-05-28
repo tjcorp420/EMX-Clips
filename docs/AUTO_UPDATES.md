@@ -29,7 +29,7 @@ Do not make users pull from git. Users should use the in-app Check Updates butto
 The app defaults to this stable GitHub Releases URL:
 
 ```text
-https://github.com/EMXTweaks/EMX-Clips/releases/latest/download/update-manifest.json
+https://github.com/tjcorp420/EMX-Clips/releases/latest/download/update-manifest.json
 ```
 
 If the repo name changes, update `UpdateManifestUrl` in `src/EmxClips/AppSettings.cs`.
@@ -39,8 +39,8 @@ Example:
 ```json
 {
   "version": "0.1.1",
-  "downloadUrl": "https://github.com/EMXTweaks/EMX-Clips/releases/download/v0.1.1/EMX.Clips.exe",
-  "releaseNotesUrl": "https://github.com/EMXTweaks/EMX-Clips/releases/tag/v0.1.1",
+  "downloadUrl": "https://github.com/tjcorp420/EMX-Clips/releases/download/v0.1.1/EMX.Clips.exe",
+  "releaseNotesUrl": "https://github.com/tjcorp420/EMX-Clips/releases/tag/v0.1.1",
   "sha256": "PUT_RELEASE_EXE_SHA256_HERE"
 }
 ```
