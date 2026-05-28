@@ -9,7 +9,7 @@
     <AssemblyName>EMX Clips</AssemblyName>
     <ApplicationIcon>Assets\emx-clips.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.1.16</Version>
+    <Version>0.1.17</Version>
     <Authors>EMX</Authors>
     <Product>EMX Clips</Product>
     <Description>Lightweight EMX gameplay clipping tray app.</Description>

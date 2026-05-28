@@ -330,6 +330,9 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         return null;
     }
 
+    public async Task<bool> SceneItemExistsAsync(string sceneName, string sourceName, CancellationToken cancellationToken = default) =>
+        await GetSceneItemIdAsync(sceneName, sourceName, cancellationToken).ConfigureAwait(false) is not null;
+
     public Task CreateSceneItemAsync(string sceneName, string sourceName, CancellationToken cancellationToken = default) =>
         SendRequestNoDataAsync("CreateSceneItem", new
         {

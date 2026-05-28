@@ -306,7 +306,7 @@ public sealed class TrayAppContext : ApplicationContext
         return string.IsNullOrWhiteSpace(detail) ? message : $"{message}\n\nOBS detail: {detail}";
     }
 
-    private async Task TrySyncObsSettingsAsync(ObsWebSocketClient client)
+    private async Task<bool> TrySyncObsSettingsAsync(ObsWebSocketClient client)
     {
         Directory.CreateDirectory(_settings.ClipsFolder);
 
@@ -319,8 +319,9 @@ public sealed class TrayAppContext : ApplicationContext
         await TrySetProfileParameterAsync(client, "AdvOut", "RecRB", "true");
         await TrySetProfileParameterAsync(client, "AdvOut", "RecRBTime", _settings.ReplayBufferSeconds.ToString());
         await TrySetProfileParameterAsync(client, "AdvOut", "RecRBSize", _settings.ReplayBufferMemoryMb.ToString());
-        await TryRepairExistingDisplayCaptureAsync(client);
+        var captureChanged = await EnsureDisplayCaptureAsync(client, createIfMissing: true);
         await TryApplyMicrophoneSettingsAsync(client);
+        return captureChanged;
     }
 
     private async Task EnsureDedicatedObsWorkspaceAsync(ObsWebSocketClient client)
@@ -372,27 +373,37 @@ public sealed class TrayAppContext : ApplicationContext
         }
     }
 
-    private static async Task TryRepairExistingDisplayCaptureAsync(ObsWebSocketClient client)
+    private static async Task<bool> EnsureDisplayCaptureAsync(ObsWebSocketClient client, bool createIfMissing)
     {
-        try
+        var sceneName = await client.GetCurrentProgramSceneAsync();
+        if (string.IsNullOrWhiteSpace(sceneName))
         {
-            if (!await client.InputExistsAsync(DisplayCaptureInputName))
+            throw new InvalidOperationException("EMX could not find the active OBS scene. Open OBS once, select your gameplay scene, then click Restart Buffer.");
+        }
+
+        var changed = false;
+        var inputExists = await client.InputExistsAsync(DisplayCaptureInputName);
+        if (!inputExists)
+        {
+            if (!createIfMissing)
             {
-                return;
+                return false;
             }
 
-            var sceneName = await client.GetCurrentProgramSceneAsync();
-            var target = await ResolveDisplayCaptureTargetAsync(client, DisplayCaptureInputName);
-            await client.SetInputSettingsAsync(DisplayCaptureInputName, BuildDisplayCaptureSettings(target.MonitorId), overlay: false);
-            if (!string.IsNullOrWhiteSpace(sceneName))
-            {
-                await ConfigureFullscreenCaptureAsync(client, sceneName, DisplayCaptureInputName, target);
-            }
+            var inputKind = await ResolveDisplayCaptureKindAsync(client);
+            await client.CreateInputAsync(sceneName, DisplayCaptureInputName, inputKind, BuildDisplayCaptureSettings(null));
+            changed = true;
         }
-        catch
+        else if (!await client.SceneItemExistsAsync(sceneName, DisplayCaptureInputName))
         {
-            // Replay buffer settings should still apply even if OBS refuses source repair.
+            await client.CreateSceneItemAsync(sceneName, DisplayCaptureInputName);
+            changed = true;
         }
+
+        var target = await ResolveDisplayCaptureTargetAsync(client, DisplayCaptureInputName);
+        await client.SetInputSettingsAsync(DisplayCaptureInputName, BuildDisplayCaptureSettings(target.MonitorId), overlay: false);
+        await ConfigureFullscreenCaptureAsync(client, sceneName, DisplayCaptureInputName, target);
+        return changed;
     }
 
     private async Task ApplySettingsAndStartBufferAsync()
@@ -438,7 +449,24 @@ public sealed class TrayAppContext : ApplicationContext
         {
             TryLaunchObs();
             var client = await GetObsClientAsync();
-            await TrySyncObsSettingsAsync(client);
+            var wasActive = await client.GetReplayBufferActiveAsync();
+            var captureChanged = await TrySyncObsSettingsAsync(client);
+
+            if (wasActive && captureChanged)
+            {
+                try
+                {
+                    await client.StopReplayBufferAsync();
+                }
+                catch (ObsRequestException)
+                {
+                    // Best effort; the follow-up start will restore the desired state.
+                }
+
+                await client.StartReplayBufferAsync();
+                SetDashboardStatus("EMX repaired the missing display capture and restarted the replay buffer. Wait one clip length, then save a fresh clip.");
+                return;
+            }
 
             if (!await client.GetReplayBufferActiveAsync())
             {
@@ -472,17 +500,8 @@ public sealed class TrayAppContext : ApplicationContext
             await client.StopReplayBufferAsync();
         }
 
-        var inputExists = await client.InputExistsAsync(DisplayCaptureInputName);
-
-        if (!inputExists)
-        {
-            var inputKind = await ResolveDisplayCaptureKindAsync(client);
-            await client.CreateInputAsync(sceneName, DisplayCaptureInputName, inputKind, BuildDisplayCaptureSettings(null));
-        }
-
+        await EnsureDisplayCaptureAsync(client, createIfMissing: true);
         var target = await ResolveDisplayCaptureTargetAsync(client, DisplayCaptureInputName);
-        await client.SetInputSettingsAsync(DisplayCaptureInputName, BuildDisplayCaptureSettings(target.MonitorId), overlay: false);
-        await ConfigureFullscreenCaptureAsync(client, sceneName, DisplayCaptureInputName, target);
 
         var hasMonitorId = !string.IsNullOrWhiteSpace(target.MonitorId);
 
