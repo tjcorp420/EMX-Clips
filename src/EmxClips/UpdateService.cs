@@ -26,11 +26,16 @@ public sealed class UpdateManifest
 
     [JsonPropertyName("sha256")]
     public string Sha256 { get; set; } = "";
+
+    [JsonPropertyName("sizeBytes")]
+    public long SizeBytes { get; set; }
 }
 
 public static class UpdateService
 {
     public const string LatestReleaseUrl = "https://github.com/tjcorp420/EMX-Clips/releases/latest";
+    private const int MaxDownloadAttempts = 3;
+    private const long MinimumExpectedExeBytes = 10 * 1024 * 1024;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -47,8 +52,7 @@ public static class UpdateService
             throw new InvalidOperationException("No update manifest URL is configured.");
         }
 
-        using var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("EMX-Clips-Updater");
+        using var client = CreateHttpClient();
 
         string json;
         try
@@ -87,28 +91,91 @@ public static class UpdateService
         var fileName = $"EMX Clips {manifest.Version}.exe";
         var destinationPath = Path.Combine(updatesDirectory, fileName);
 
-        progress?.Report("Downloading update...");
-        using var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("EMX-Clips-Updater");
-        await using (var download = await client.GetStreamAsync(manifest.DownloadUrl, cancellationToken).ConfigureAwait(false))
-        await using (var file = File.Create(destinationPath))
+        var tempPath = Path.Combine(updatesDirectory, $"download-{Guid.NewGuid():N}.tmp");
+        Exception? lastError = null;
+
+        for (var attempt = 1; attempt <= MaxDownloadAttempts; attempt++)
         {
-            await download.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                progress?.Report(attempt == 1
+                    ? "Downloading update..."
+                    : $"Download check failed. Retrying update ({attempt}/{MaxDownloadAttempts})...");
+
+                await DownloadFileOnceAsync(manifest.DownloadUrl, tempPath, cancellationToken).ConfigureAwait(false);
+                progress?.Report("Verifying update...");
+                await ValidateDownloadedExecutableAsync(tempPath, manifest, cancellationToken).ConfigureAwait(false);
+
+                if (File.Exists(destinationPath))
+                {
+                    File.Delete(destinationPath);
+                }
+
+                File.Move(tempPath, destinationPath);
+                return destinationPath;
+            }
+            catch (Exception ex) when (attempt < MaxDownloadAttempts)
+            {
+                lastError = ex;
+                TryDelete(tempPath);
+                await Task.Delay(TimeSpan.FromSeconds(attempt), cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                TryDelete(tempPath);
+                throw;
+            }
+        }
+
+        throw new InvalidOperationException("Update download failed after multiple tries.", lastError);
+    }
+
+    private static async Task DownloadFileOnceAsync(string downloadUrl, string destinationPath, CancellationToken cancellationToken)
+    {
+        using var client = CreateHttpClient();
+        using var response = await client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        await using var download = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await using var file = File.Create(destinationPath);
+        await download.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task ValidateDownloadedExecutableAsync(string destinationPath, UpdateManifest manifest, CancellationToken cancellationToken)
+    {
+        var fileInfo = new FileInfo(destinationPath);
+        var fileLength = fileInfo.Exists ? fileInfo.Length : 0;
+        if (!fileInfo.Exists || fileLength < MinimumExpectedExeBytes)
+        {
+            throw new InvalidOperationException($"Update download was incomplete ({fileLength:N0} bytes).");
+        }
+
+        if (manifest.SizeBytes > 0 && fileLength != manifest.SizeBytes)
+        {
+            throw new InvalidOperationException($"Update download size mismatch. Expected {manifest.SizeBytes:N0} bytes, got {fileLength:N0} bytes.");
+        }
+
+        await using (var header = File.OpenRead(destinationPath))
+        {
+            var mz = new byte[2];
+            if (await header.ReadAsync(mz.AsMemory(0, 2), cancellationToken).ConfigureAwait(false) != 2 ||
+                mz[0] != (byte)'M' ||
+                mz[1] != (byte)'Z')
+            {
+                throw new InvalidOperationException("Update download was not a Windows EXE. GitHub may have returned an error page instead of the release file.");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(manifest.Sha256) &&
             !manifest.Sha256.Contains("PUT_", StringComparison.OrdinalIgnoreCase))
         {
-            progress?.Report("Verifying update...");
+            var expectedHash = NormalizeHash(manifest.Sha256);
             var hash = await ComputeSha256Async(destinationPath, cancellationToken).ConfigureAwait(false);
-            if (!string.Equals(hash, manifest.Sha256, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(hash, expectedHash, StringComparison.OrdinalIgnoreCase))
             {
-                File.Delete(destinationPath);
-                throw new InvalidOperationException("Update verification failed. The downloaded file hash did not match the release manifest.");
+                throw new InvalidOperationException($"Update verification failed. Expected SHA256 {expectedHash}, got {hash}. Download size was {fileLength:N0} bytes.");
             }
         }
-
-        return destinationPath;
     }
 
     public static void ApplyDownloadedUpdateAndRestart(string downloadedExePath)
@@ -179,6 +246,43 @@ del "%~f0"
         return Convert.ToHexString(hash);
     }
 
+    private static HttpClient CreateHttpClient()
+    {
+        var client = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(10)
+        };
+
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("EMX-Clips-Updater/1.0");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/octet-stream");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.CacheControl = new()
+        {
+            NoCache = true,
+            NoStore = true
+        };
+        client.DefaultRequestHeaders.Pragma.ParseAdd("no-cache");
+        return client;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best effort cleanup only; the next attempt writes a fresh temp file.
+        }
+    }
+
     private static string NormalizeVersion(string value) =>
         value.Trim().TrimStart('v', 'V');
+
+    private static string NormalizeHash(string value) =>
+        value.Trim().Replace("sha256:", "", StringComparison.OrdinalIgnoreCase);
 }

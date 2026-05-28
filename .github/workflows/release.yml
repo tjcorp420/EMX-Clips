@@ -35,14 +35,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
           $exe = "./artifacts/EMX.Clips.exe"
           Copy-Item "./src/EmxClips/bin/Release/net8.0-windows/win-x64/publish/EMX Clips.exe" $exe
-          $sha = (Get-FileHash $exe -Algorithm SHA256).Hash
+          $size = (Get-Item $exe).Length
           $version = "${{ github.ref_name }}".TrimStart("v")
           $repo = "${{ github.repository }}"
           @{
             version = $version
             downloadUrl = "https://github.com/$repo/releases/download/${{ github.ref_name }}/EMX.Clips.exe"
             releaseNotesUrl = "https://github.com/$repo/releases/tag/${{ github.ref_name }}"
-            sha256 = $sha
+            sha256 = ""
+            sizeBytes = $size
           } | ConvertTo-Json | Set-Content "./artifacts/update-manifest.json"
           Get-Content "./artifacts/update-manifest.json"
 
