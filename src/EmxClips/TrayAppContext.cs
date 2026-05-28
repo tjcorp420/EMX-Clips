@@ -1451,6 +1451,7 @@ public sealed class TrayAppContext : ApplicationContext
         _dashboard.AutoSetupMicRequested += (_, _) => RunUiTask(AutoSetupMicrophoneAsync);
         _dashboard.PhoneCompanionRequested += (_, _) => OpenPhoneCompanion();
         _dashboard.InstallObsRequested += (_, _) => RunUiTask(InstallObsAsync);
+        _dashboard.CheckObsStatusRequested += (_, _) => RunUiTask(CheckObsStatusAsync);
         _dashboard.CheckUpdatesRequested += (_, _) => RunUiTask(CheckForUpdatesAsync);
         _dashboard.HideToTrayRequested += (_, _) => HideDashboardToTray();
         _dashboard.SettingsSaved += (_, _) =>
@@ -1471,6 +1472,91 @@ public sealed class TrayAppContext : ApplicationContext
         SetDashboardStatus(ObsTools.ResolveObsPath(_settings.ObsPath) is null
             ? "OBS installer opened. Finish installing OBS, then save EMX settings."
             : "OBS available. Save EMX settings, then Auto Setup Capture.");
+    }
+
+    private async Task CheckObsStatusAsync()
+    {
+        if (ObsTools.ResolveObsPath(_settings.ObsPath) is null)
+        {
+            SetDashboardObsStatus(
+                "OBS not installed",
+                "Install OBS first, then open OBS once in Normal Mode and enable Tools > WebSocket Server Settings.",
+                EmxTheme.MagentaGlow);
+            return;
+        }
+
+        try
+        {
+            var client = await GetObsClientAsync();
+            var streamActive = await client.GetStreamActiveAsync();
+            var recordActive = await client.GetRecordActiveAsync();
+            var replayActive = await client.GetReplayBufferActiveAsync();
+            var liveSafeMode = streamActive || recordActive;
+            var sceneName = await client.GetCurrentProgramSceneAsync();
+            var hasCapture = !string.IsNullOrWhiteSpace(sceneName) &&
+                await client.InputExistsAsync(DisplayCaptureInputName) &&
+                await client.SceneItemExistsAsync(sceneName, DisplayCaptureInputName);
+
+            if (liveSafeMode && replayActive)
+            {
+                SetDashboardObsStatus(
+                    "Live Safe ready",
+                    "OBS is live/recording and replay buffer is active. EMX can save clips without changing the live profile, scene, capture source, or video settings.",
+                    EmxTheme.GreenGlow);
+                return;
+            }
+
+            if (liveSafeMode)
+            {
+                SetDashboardObsStatus(
+                    "Live Safe: replay off",
+                    "OBS is live/recording but replay buffer is off. Click Restart Buffer once. If OBS rejects it, wait until stream ends, then enable Replay Buffer in OBS Settings > Output and run Auto Setup Capture.",
+                    EmxTheme.MagentaGlow);
+                return;
+            }
+
+            if (replayActive && hasCapture)
+            {
+                SetDashboardObsStatus(
+                    "Ready to clip",
+                    "OBS is connected, replay buffer is active, and EMX Display Capture is in the active scene. Minimize to tray and press your clip hotkey.",
+                    EmxTheme.GreenGlow);
+                return;
+            }
+
+            if (replayActive)
+            {
+                SetDashboardObsStatus(
+                    "Buffer on, setup needed",
+                    "Replay buffer is active, but EMX Display Capture is not in the active scene. Click Auto Setup Capture while not live, then wait one clip length before testing.",
+                    EmxTheme.MagentaGlow);
+                return;
+            }
+
+            SetDashboardObsStatus(
+                "Replay buffer off",
+                hasCapture
+                    ? "Capture is set up, but replay buffer is off. Click Restart Buffer, wait one clip length, then press the clip hotkey."
+                    : "Click Auto Setup Capture while not live, then click Restart Buffer. For live users, set this up before going live.",
+                EmxTheme.MagentaGlow);
+        }
+        catch (Exception ex)
+        {
+            SetDashboardObsStatus(
+                "OBS not connected",
+                $"{BuildObsConnectionHelp(ex.Message)} After it connects, click Check OBS again.",
+                EmxTheme.MagentaGlow);
+        }
+    }
+
+    private void SetDashboardObsStatus(string headline, string detail, Color color)
+    {
+        if (_dashboard is null || _dashboard.IsDisposed)
+        {
+            return;
+        }
+
+        _dashboard.SetObsStatus(headline, detail, color);
     }
 
     private async Task CheckForUpdatesAsync()

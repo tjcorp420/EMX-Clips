@@ -98,6 +98,7 @@ public sealed class DashboardForm : Form
     public event EventHandler? AutoSetupMicRequested;
     public event EventHandler? PhoneCompanionRequested;
     public event EventHandler? InstallObsRequested;
+    public event EventHandler? CheckObsStatusRequested;
     public event EventHandler? CheckUpdatesRequested;
     public event EventHandler? HideToTrayRequested;
     public event EventHandler? SettingsSaved;
@@ -144,6 +145,19 @@ public sealed class DashboardForm : Form
         }
 
         _status.Text = message;
+    }
+
+    public void SetObsStatus(string headline, string detail, Color color)
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(() => SetObsStatus(headline, detail, color));
+            return;
+        }
+
+        _obsStatus.Text = headline;
+        _obsStatus.ForeColor = color;
+        _status.Text = detail;
     }
 
     private Control BuildLayout()
@@ -783,12 +797,21 @@ public sealed class DashboardForm : Form
         };
 
         _obsStatus.AutoSize = false;
-        _obsStatus.Width = 360;
+        _obsStatus.Width = 300;
         _obsStatus.Height = 32;
         _obsStatus.Margin = new Padding(0, 7, 8, 5);
         _obsStatus.ForeColor = EmxTheme.MutedText;
         _obsStatus.TextAlign = ContentAlignment.MiddleLeft;
         panel.Controls.Add(_obsStatus);
+
+        var checkButton = Button("Check OBS", ButtonKind.Green, () =>
+        {
+            SaveSettingsFromControls(applySettings: false);
+            CheckObsStatusRequested?.Invoke(this, EventArgs.Empty);
+        });
+        checkButton.Width = 116;
+        checkButton.Margin = new Padding(0, 5, 8, 5);
+        panel.Controls.Add(checkButton);
 
         var installButton = Button("Install OBS", ButtonKind.Primary, () => InstallObsRequested?.Invoke(this, EventArgs.Empty));
         installButton.Width = 116;
@@ -1010,7 +1033,9 @@ public sealed class DashboardForm : Form
         RefreshMicControlsState();
     }
 
-    private void SaveSettingsFromControls()
+    private void SaveSettingsFromControls() => SaveSettingsFromControls(applySettings: true);
+
+    private void SaveSettingsFromControls(bool applySettings)
     {
         _settings.ReplayBufferSeconds = (int)_clipLength.Value;
         _settings.ReplayBufferMemoryMb = (int)_memoryLimit.Value;
@@ -1045,8 +1070,11 @@ public sealed class DashboardForm : Form
         RefreshClips();
         RefreshObsCheck();
         RefreshMicControlsState();
-        SettingsSaved?.Invoke(this, EventArgs.Empty);
-        SetStatus("Settings saved");
+        if (applySettings)
+        {
+            SettingsSaved?.Invoke(this, EventArgs.Empty);
+            SetStatus("Settings saved");
+        }
     }
 
     private void ResetFirebaseSession()
