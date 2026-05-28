@@ -34,6 +34,9 @@ public sealed class AppSettings
     public bool AutoLaunchObs { get; set; } = true;
     public bool AutoStartReplayBuffer { get; set; } = true;
     public bool MinimizeObsToTray { get; set; } = true;
+    public bool CaptureMicrophone { get; set; } = true;
+    public string MicrophoneDeviceId { get; set; } = "default";
+    public string MicrophoneDeviceName { get; set; } = "Default";
     public bool SetupCompleted { get; set; }
     public Keys HotkeyKey { get; set; } = Keys.F8;
     public HotkeyModifiers HotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Alt;

@@ -175,6 +175,13 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
             overlay
         }, cancellationToken);
 
+    public Task SetInputMuteAsync(string inputName, bool inputMuted, CancellationToken cancellationToken = default) =>
+        SendRequestNoDataAsync("SetInputMute", new
+        {
+            inputName,
+            inputMuted
+        }, cancellationToken);
+
     public async Task<string?> GetPreferredInputListPropertyValueAsync(string inputName, string propertyName, CancellationToken cancellationToken = default)
     {
         var response = await SendRequestAsync("GetInputPropertiesListPropertyItems", new

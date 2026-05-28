@@ -10,12 +10,15 @@
     <AssemblyName>EMX Clips</AssemblyName>
     <ApplicationIcon>Assets\emx-clips.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Authors>EMX</Authors>
     <Product>EMX Clips</Product>
     <Description>Lightweight EMX gameplay clipping tray app.</Description>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets\emx-logo.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 </Project>

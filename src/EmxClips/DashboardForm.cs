@@ -26,15 +26,20 @@ public sealed class DashboardForm : Form
     private readonly Image? _logo;
     private readonly ListView _clips = new();
     private readonly Label _status = new();
-    private readonly NumericUpDown _clipLength = new();
-    private readonly NumericUpDown _memoryLimit = new();
+    private readonly NoWheelNumericUpDown _clipLength = new();
+    private readonly NoWheelNumericUpDown _memoryLimit = new();
     private readonly TextBox _clipsFolder = new();
     private readonly TextBox _obsPath = new();
     private readonly TextBox _host = new();
-    private readonly NumericUpDown _port = new();
+    private readonly NoWheelNumericUpDown _port = new();
     private readonly TextBox _password = new();
     private readonly TextBox _hotkeyDisplay = new();
     private readonly TextBox _toggleHotkeyDisplay = new();
+    private readonly ComboBox _microphone = new();
+    private readonly CheckBox _captureMic = new();
+    private readonly ProgressBar _micLevel = new();
+    private readonly Label _micLevelText = new();
+    private readonly System.Windows.Forms.Timer _micTestTimer = new() { Interval = 120 };
     private readonly Label _obsStatus = new();
     private readonly Panel _pageHost = new();
     private readonly CheckBox _autoLaunch = new();
@@ -48,6 +53,8 @@ public sealed class DashboardForm : Form
     private Control? _settingsPage;
     private Button? _clipsTabButton;
     private Button? _settingsTabButton;
+    private Button? _micTestButton;
+    private bool _micTestRunning;
 
     public DashboardForm(AppSettings settings, Icon icon)
     {
@@ -66,6 +73,7 @@ public sealed class DashboardForm : Form
         DoubleBuffered = true;
 
         Controls.Add(BuildLayout());
+        _micTestTimer.Tick += (_, _) => UpdateMicTestMeter();
         LoadSettingsIntoControls();
         RefreshClips();
     }
@@ -442,14 +450,14 @@ public sealed class DashboardForm : Form
             BackColor = EmxTheme.Panel
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
 
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 3,
-            RowCount = 14,
+            RowCount = 17,
             BackColor = EmxTheme.Panel
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
@@ -463,22 +471,25 @@ public sealed class DashboardForm : Form
         AddRow(grid, 4, "OBS host", _host, null);
         AddRow(grid, 5, "OBS port", _port, null);
         AddRow(grid, 6, "OBS password", _password, null);
-        AddRow(grid, 7, "Buffer memory MB", _memoryLimit, null);
-        AddRow(grid, 8, "Clips folder", _clipsFolder, Button("Browse", ButtonKind.Secondary, BrowseClipsFolder));
-        AddRow(grid, 9, "OBS path", _obsPath, Button("Browse", ButtonKind.Secondary, BrowseObsPath));
+        AddRow(grid, 7, "Capture mic", _captureMic, null);
+        AddRow(grid, 8, "Mic device", _microphone, Button("Refresh", ButtonKind.Secondary, LoadMicrophoneDevices));
+        AddRow(grid, 9, "Mic test", BuildMicTestPanel(), BuildMicTestButton());
+        AddRow(grid, 10, "Buffer memory MB", _memoryLimit, null);
+        AddRow(grid, 11, "Clips folder", _clipsFolder, Button("Browse", ButtonKind.Secondary, BrowseClipsFolder));
+        AddRow(grid, 12, "OBS path", _obsPath, Button("Browse", ButtonKind.Secondary, BrowseObsPath));
 
         _autoLaunch.Text = "Auto-launch OBS";
         _autoStart.Text = "Auto-start replay buffer";
         _minimizeObs.Text = "Launch OBS minimized";
-        foreach (var checkBox in new[] { _autoLaunch, _autoStart, _minimizeObs })
+        foreach (var checkBox in new[] { _autoLaunch, _autoStart, _minimizeObs, _captureMic })
         {
             StyleCheckBox(checkBox);
         }
 
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-        grid.Controls.Add(Label("Startup"), 0, 10);
+        grid.Controls.Add(Label("Startup"), 0, 13);
         var startup = Stack(_autoLaunch, _autoStart, _minimizeObs);
-        grid.Controls.Add(startup, 1, 10);
+        grid.Controls.Add(startup, 1, 13);
         grid.SetColumnSpan(startup, 2);
 
         var scroll = new Panel
@@ -495,12 +506,16 @@ public sealed class DashboardForm : Form
         {
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.RightToLeft,
-            WrapContents = false,
+            WrapContents = true,
             BackColor = EmxTheme.Panel
         };
         bottom.Controls.Add(Button("Save Settings", ButtonKind.Primary, SaveSettingsFromControls));
         bottom.Controls.Add(Button("Auto Setup Capture", ButtonKind.Green, () => AutoSetupCaptureRequested?.Invoke(this, EventArgs.Empty)));
-        bottom.Controls.Add(Button("Auto Setup Mic", ButtonKind.Green, () => AutoSetupMicRequested?.Invoke(this, EventArgs.Empty)));
+        bottom.Controls.Add(Button("Auto Setup Mic", ButtonKind.Green, () =>
+        {
+            SaveSettingsFromControls();
+            AutoSetupMicRequested?.Invoke(this, EventArgs.Empty);
+        }));
         bottom.Controls.Add(Button("Check Updates", ButtonKind.Secondary, () => CheckUpdatesRequested?.Invoke(this, EventArgs.Empty)));
         bottom.Controls.Add(Button("Quick Help", ButtonKind.Secondary, ShowQuickHelp));
         bottom.Controls.Add(Button("Refresh Clips", ButtonKind.Secondary, RefreshClips));
@@ -520,6 +535,38 @@ public sealed class DashboardForm : Form
         child.BackColor = child is ListView ? EmxTheme.Surface : EmxTheme.SurfaceAlt;
         panel.Controls.Add(child);
         return panel;
+    }
+
+    private Control BuildMicTestPanel()
+    {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            BackColor = EmxTheme.SurfaceAlt
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
+
+        _micLevel.Dock = DockStyle.Fill;
+        _micLevel.Minimum = 0;
+        _micLevel.Maximum = 100;
+        _micLevel.Value = 0;
+        _micLevel.Margin = new Padding(0, 9, 10, 9);
+        panel.Controls.Add(_micLevel, 0, 0);
+
+        _micLevelText.Dock = DockStyle.Fill;
+        _micLevelText.Text = "Idle";
+        _micLevelText.ForeColor = EmxTheme.MutedText;
+        _micLevelText.TextAlign = ContentAlignment.MiddleLeft;
+        panel.Controls.Add(_micLevelText, 1, 0);
+        return panel;
+    }
+
+    private Button BuildMicTestButton()
+    {
+        _micTestButton = Button("Test Mic", ButtonKind.Green, ToggleMicTest);
+        return _micTestButton;
     }
 
     private static Button NavButton(string text, Action onClick)
@@ -852,6 +899,7 @@ public sealed class DashboardForm : Form
                 comboBox.BackColor = EmxTheme.Surface;
                 comboBox.ForeColor = EmxTheme.Text;
                 comboBox.FlatStyle = FlatStyle.Flat;
+                comboBox.DropDownStyle = ComboBoxStyle.DropDownList;
                 break;
             case Panel or FlowLayoutPanel:
                 control.BackColor = EmxTheme.SurfaceAlt;
@@ -889,6 +937,10 @@ public sealed class DashboardForm : Form
         _password.Text = _settings.ObsWebSocketPassword;
         _password.UseSystemPasswordChar = true;
         _password.PlaceholderText = "Password from OBS WebSocket settings";
+        _captureMic.Text = "Include selected microphone in clips";
+        _captureMic.Checked = _settings.CaptureMicrophone;
+        _captureMic.CheckedChanged += (_, _) => RefreshMicControlsState();
+        LoadMicrophoneDevices();
         _autoLaunch.Checked = _settings.AutoLaunchObs;
         _autoStart.Checked = _settings.AutoStartReplayBuffer;
         _minimizeObs.Checked = _settings.MinimizeObsToTray;
@@ -900,6 +952,7 @@ public sealed class DashboardForm : Form
         UpdateHotkeyDisplay();
         UpdateToggleHotkeyDisplay();
         RefreshObsCheck();
+        RefreshMicControlsState();
     }
 
     private void SaveSettingsFromControls()
@@ -914,6 +967,12 @@ public sealed class DashboardForm : Form
         _settings.AutoLaunchObs = _autoLaunch.Checked;
         _settings.AutoStartReplayBuffer = _autoStart.Checked;
         _settings.MinimizeObsToTray = _minimizeObs.Checked;
+        _settings.CaptureMicrophone = _captureMic.Checked;
+        if (_microphone.SelectedItem is AudioInputDevice device)
+        {
+            _settings.MicrophoneDeviceId = device.Id;
+            _settings.MicrophoneDeviceName = device.Name;
+        }
         _settings.SetupCompleted = true;
         _settings.HotkeyKey = _selectedHotkeyKey;
         _settings.HotkeyModifiers = _selectedHotkeyModifiers;
@@ -923,8 +982,114 @@ public sealed class DashboardForm : Form
         _settings.Save();
         RefreshClips();
         RefreshObsCheck();
+        RefreshMicControlsState();
         SettingsSaved?.Invoke(this, EventArgs.Empty);
         SetStatus("Settings saved");
+    }
+
+    private void LoadMicrophoneDevices()
+    {
+        IReadOnlyList<AudioInputDevice> devices;
+        try
+        {
+            devices = AudioDeviceService.ListCaptureDevices();
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Could not read microphones: {ex.Message}");
+            return;
+        }
+
+        var selectedId = _microphone.SelectedItem is AudioInputDevice current
+            ? current.Id
+            : _settings.MicrophoneDeviceId;
+
+        _microphone.BeginUpdate();
+        try
+        {
+            _microphone.Items.Clear();
+            foreach (var device in devices)
+            {
+                _microphone.Items.Add(device);
+            }
+
+            var selected = devices.FirstOrDefault(device =>
+                string.Equals(device.Id, selectedId, StringComparison.OrdinalIgnoreCase)) ?? devices.FirstOrDefault();
+
+            if (selected is not null)
+            {
+                _microphone.SelectedItem = selected;
+            }
+        }
+        finally
+        {
+            _microphone.EndUpdate();
+        }
+    }
+
+    private void ToggleMicTest()
+    {
+        if (_micTestRunning)
+        {
+            _micTestTimer.Stop();
+            _micTestRunning = false;
+            _micLevel.Value = 0;
+            _micLevelText.Text = "Idle";
+            if (_micTestButton is not null) _micTestButton.Text = "Test Mic";
+            return;
+        }
+
+        _micTestRunning = true;
+        if (_micTestButton is not null) _micTestButton.Text = "Stop Test";
+        _micTestTimer.Start();
+        UpdateMicTestMeter();
+    }
+
+    private void UpdateMicTestMeter()
+    {
+        if (!_captureMic.Checked)
+        {
+            _micLevel.Value = 0;
+            _micLevelText.Text = "Mic Off";
+            return;
+        }
+
+        try
+        {
+            var deviceId = _microphone.SelectedItem is AudioInputDevice device ? device.Id : "default";
+            var peak = AudioDeviceService.GetPeakLevel(deviceId);
+            var value = Math.Clamp((int)Math.Round(peak * 100), 0, 100);
+            _micLevel.Value = value;
+            _micLevelText.Text = value switch
+            {
+                >= 65 => "Loud",
+                >= 20 => "Good",
+                >= 4 => "Signal",
+                _ => "Quiet"
+            };
+            _micLevelText.ForeColor = value >= 4 ? EmxTheme.GreenGlow : EmxTheme.MutedText;
+        }
+        catch (Exception ex)
+        {
+            _micTestTimer.Stop();
+            _micTestRunning = false;
+            _micLevel.Value = 0;
+            _micLevelText.Text = "Test failed";
+            if (_micTestButton is not null) _micTestButton.Text = "Test Mic";
+            SetStatus($"Mic test failed: {ex.Message}");
+        }
+    }
+
+    private void RefreshMicControlsState()
+    {
+        var enabled = _captureMic.Checked;
+        _microphone.Enabled = enabled;
+        _micLevel.Enabled = enabled;
+        _micLevelText.Text = enabled ? "Idle" : "Mic Off";
+        if (!enabled && _micTestRunning)
+        {
+            ToggleMicTest();
+        }
     }
 
     private ClipFile? SelectedClip()
@@ -1161,10 +1326,11 @@ EMX Clips quick start
 
 1. OBS available should be green.
 2. Click Auto Setup Capture once.
-3. Click Auto Setup Mic if you want mic/keyboard sounds.
-4. Save Settings.
-5. Minimize EMX Clips to tray and play.
-6. Press {HotkeyText.Format(_selectedHotkeyKey, _selectedHotkeyModifiers)} to save the last {_clipLength.Value:0} seconds.
+3. Pick your mic, turn Capture Mic on or off, and use Test Mic to check signal.
+4. Click Auto Setup Mic if you want EMX to apply it to OBS now.
+5. Save Settings.
+6. Minimize EMX Clips to tray and play.
+7. Press {HotkeyText.Format(_selectedHotkeyKey, _selectedHotkeyModifiers)} to save the last {_clipLength.Value:0} seconds.
 
 Use Export MP4 for CapCut, TikTok, Discord, and most editors.
 """;
@@ -1178,6 +1344,7 @@ Use Export MP4 for CapCut, TikTok, Discord, and most editors.
         {
             Icon?.Dispose();
             _logo?.Dispose();
+            _micTestTimer.Dispose();
         }
 
         base.Dispose(disposing);
@@ -1196,6 +1363,17 @@ internal enum ButtonKind
     Green,
     Magenta,
     Secondary
+}
+
+internal sealed class NoWheelNumericUpDown : NumericUpDown
+{
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        if (e is HandledMouseEventArgs handled)
+        {
+            handled.Handled = true;
+        }
+    }
 }
 
 internal static class HotkeyText
@@ -1393,19 +1571,19 @@ internal sealed class HotkeyCaptureForm : Form
 
 internal static class EmxTheme
 {
-    public static readonly Color Background = Color.FromArgb(5, 7, 10);
-    public static readonly Color Panel = Color.FromArgb(11, 14, 20);
-    public static readonly Color Surface = Color.FromArgb(7, 10, 14);
-    public static readonly Color SurfaceAlt = Color.FromArgb(16, 20, 29);
-    public static readonly Color Hover = Color.FromArgb(32, 18, 42);
-    public static readonly Color Border = Color.FromArgb(65, 35, 85);
-    public static readonly Color Text = Color.FromArgb(245, 248, 247);
-    public static readonly Color MutedText = Color.FromArgb(164, 178, 174);
+    public static readonly Color Background = Color.FromArgb(2, 6, 7);
+    public static readonly Color Panel = Color.FromArgb(7, 13, 14);
+    public static readonly Color Surface = Color.FromArgb(4, 8, 10);
+    public static readonly Color SurfaceAlt = Color.FromArgb(12, 19, 21);
+    public static readonly Color Hover = Color.FromArgb(24, 39, 28);
+    public static readonly Color Border = Color.FromArgb(34, 86, 46);
+    public static readonly Color Text = Color.FromArgb(246, 250, 246);
+    public static readonly Color MutedText = Color.FromArgb(150, 166, 156);
     public static readonly Color Green = Color.FromArgb(108, 255, 0);
     public static readonly Color GreenDark = Color.FromArgb(17, 55, 24);
     public static readonly Color GreenGlow = Color.FromArgb(185, 255, 120);
     public static readonly Color Magenta = Color.FromArgb(227, 0, 255);
-    public static readonly Color MagentaDark = Color.FromArgb(62, 10, 72);
+    public static readonly Color MagentaDark = Color.FromArgb(54, 12, 60);
     public static readonly Color MagentaGlow = Color.FromArgb(255, 112, 255);
 }
 
@@ -1424,10 +1602,21 @@ internal sealed class EmxHeaderPanel : Panel
     {
         using var background = new System.Drawing.Drawing2D.LinearGradientBrush(
             ClientRectangle,
-            Color.FromArgb(16, 26, 15),
-            Color.FromArgb(42, 8, 51),
+            Color.FromArgb(16, 32, 18),
+            Color.FromArgb(34, 9, 40),
             25f);
         e.Graphics.FillRectangle(background, ClientRectangle);
+
+        using var gridPen = new Pen(Color.FromArgb(28, EmxTheme.Green), 1);
+        for (var x = 0; x < Width; x += 32)
+        {
+            e.Graphics.DrawLine(gridPen, x, 0, x, Height);
+        }
+
+        for (var y = 0; y < Height; y += 24)
+        {
+            e.Graphics.DrawLine(gridPen, 0, y, Width, y);
+        }
 
         if (_logo is not null)
         {
@@ -1462,10 +1651,13 @@ internal sealed class EmxTitleBarPanel : Panel
     {
         using var background = new System.Drawing.Drawing2D.LinearGradientBrush(
             ClientRectangle,
-            Color.FromArgb(9, 13, 18),
-            Color.FromArgb(31, 7, 39),
+            Color.FromArgb(5, 13, 12),
+            Color.FromArgb(30, 8, 33),
             0f);
         e.Graphics.FillRectangle(background, ClientRectangle);
+
+        using var glassLine = new Pen(Color.FromArgb(22, Color.White), 1);
+        e.Graphics.DrawLine(glassLine, 0, 1, Width, 1);
 
         using var green = new Pen(Color.FromArgb(90, EmxTheme.Green), 1);
         using var magenta = new Pen(Color.FromArgb(115, EmxTheme.Magenta), 1);
