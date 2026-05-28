@@ -22,6 +22,7 @@ public sealed class TrayAppContext : ApplicationContext
     private const string EmxObsSceneCollectionName = "EMX Clips";
     private const string EmxObsSceneCollectionFileName = "EMX_Clips";
     private const int DefaultCaptureFps = 60;
+    private const int ReplayImportTimeoutSeconds = 18;
 
     private readonly AppSettings _settings;
     private readonly Control _uiInvoker;
@@ -282,6 +283,10 @@ public sealed class TrayAppContext : ApplicationContext
             return;
         }
 
+        var replaySearchFolders = await GetReplaySearchFoldersAsync(client);
+        var beforeSave = SnapshotVideoFiles(replaySearchFolders);
+        var saveStartedAt = DateTime.Now;
+
         try
         {
             await client.SaveReplayBufferAsync();
@@ -290,13 +295,249 @@ public sealed class TrayAppContext : ApplicationContext
         {
             throw new InvalidOperationException(BuildSaveClipHelp(ex), ex);
         }
+
         ShowBalloon("Clip saved", $"Saved the last {_settings.ReplayBufferSeconds} seconds.", ToolTipIcon.Info);
-        SetDashboardStatus($"Clip saved: last {_settings.ReplayBufferSeconds} seconds.");
+        SetDashboardStatus($"Clip saved. Waiting for OBS to finish writing it into EMX Clips...");
         _ = Task.Run(async () =>
         {
-            await Task.Delay(2000);
-            RefreshDashboardClips();
+            try
+            {
+                var imported = await ImportSavedReplayIfNeededAsync(replaySearchFolders, beforeSave, saveStartedAt);
+                if (imported is null)
+                {
+                    SetDashboardStatus("OBS said the clip saved, but EMX could not find the new file yet. Check OBS Settings > Output > Recording Path, then click Refresh Clips.");
+                    return;
+                }
+
+                var fileName = Path.GetFileName(imported.Value.Path);
+                SetDashboardStatus(imported.Value.Imported
+                    ? $"Clip saved and imported into EMX Clips: {fileName}"
+                    : $"Clip saved: {fileName}");
+            }
+            catch (Exception ex)
+            {
+                SetDashboardStatus($"Clip saved, but EMX could not import it into the Clips tab: {ex.Message}");
+            }
+            finally
+            {
+                RefreshDashboardClips();
+            }
         });
+    }
+
+    private async Task<IReadOnlyList<string>> GetReplaySearchFoldersAsync(ObsWebSocketClient client)
+    {
+        var folders = new List<string>
+        {
+            _settings.ClipsFolder,
+            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+        };
+
+        await AddProfileFolderAsync(client, folders, "SimpleOutput", "FilePath");
+        await AddProfileFolderAsync(client, folders, "AdvOut", "RecFilePath");
+
+        return folders
+            .Select(NormalizeFolderPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static async Task AddProfileFolderAsync(ObsWebSocketClient client, List<string> folders, string category, string name)
+    {
+        try
+        {
+            var folder = await client.GetProfileParameterAsync(category, name);
+            if (!string.IsNullOrWhiteSpace(folder))
+            {
+                folders.Add(folder);
+            }
+        }
+        catch
+        {
+            // Some OBS output modes do not expose every profile parameter.
+        }
+    }
+
+    private static string? NormalizeFolderPath(string? folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(folder.Trim()));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static HashSet<string> SnapshotVideoFiles(IEnumerable<string> folders)
+    {
+        var snapshot = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in folders)
+        {
+            foreach (var path in EnumerateVideoFilesSafe(folder))
+            {
+                snapshot.Add(Path.GetFullPath(path));
+            }
+        }
+
+        return snapshot;
+    }
+
+    private async Task<(string Path, bool Imported)?> ImportSavedReplayIfNeededAsync(
+        IReadOnlyList<string> replaySearchFolders,
+        HashSet<string> beforeSave,
+        DateTime saveStartedAt)
+    {
+        var sourcePath = await WaitForSavedReplayAsync(replaySearchFolders, beforeSave, saveStartedAt);
+        if (sourcePath is null)
+        {
+            return null;
+        }
+
+        Directory.CreateDirectory(_settings.ClipsFolder);
+        if (SamePath(Path.GetDirectoryName(sourcePath) ?? "", _settings.ClipsFolder))
+        {
+            return (sourcePath, false);
+        }
+
+        var destinationPath = ChooseImportedClipPath(sourcePath);
+        await CopyFileWithRetryAsync(sourcePath, destinationPath);
+        return (destinationPath, true);
+    }
+
+    private static async Task<string?> WaitForSavedReplayAsync(
+        IReadOnlyList<string> folders,
+        HashSet<string> beforeSave,
+        DateTime saveStartedAt)
+    {
+        var until = DateTime.UtcNow.AddSeconds(ReplayImportTimeoutSeconds);
+        while (DateTime.UtcNow < until)
+        {
+            var newest = FindNewestReplayFile(folders, beforeSave, saveStartedAt);
+            if (newest is not null)
+            {
+                await WaitForFileToSettleAsync(newest);
+                return newest;
+            }
+
+            await Task.Delay(500);
+        }
+
+        return null;
+    }
+
+    private static string? FindNewestReplayFile(
+        IEnumerable<string> folders,
+        HashSet<string> beforeSave,
+        DateTime saveStartedAt)
+    {
+        var threshold = saveStartedAt.AddSeconds(-3);
+        return folders
+            .SelectMany(EnumerateVideoFilesSafe)
+            .Select(path => new FileInfo(path))
+            .Where(info => info.Exists)
+            .Where(info => !beforeSave.Contains(info.FullName))
+            .Where(info => info.LastWriteTime >= threshold)
+            .OrderByDescending(info => info.LastWriteTimeUtc)
+            .Select(info => info.FullName)
+            .FirstOrDefault();
+    }
+
+    private static IEnumerable<string> EnumerateVideoFilesSafe(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            return Directory.EnumerateFiles(folder)
+                .Where(ClipLibrary.IsVideoFile)
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private string ChooseImportedClipPath(string sourcePath)
+    {
+        var fileName = Path.GetFileName(sourcePath);
+        var destinationPath = Path.Combine(_settings.ClipsFolder, fileName);
+        if (!File.Exists(destinationPath))
+        {
+            return destinationPath;
+        }
+
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        for (var index = 1; index < 1000; index++)
+        {
+            var candidate = Path.Combine(_settings.ClipsFolder, $"{name} EMX import {index}{extension}");
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(_settings.ClipsFolder, $"{name} EMX import {DateTime.Now:HHmmss}{extension}");
+    }
+
+    private static async Task WaitForFileToSettleAsync(string path)
+    {
+        long previousLength = -1;
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (info.Exists && info.Length > 0 && info.Length == previousLength)
+                {
+                    return;
+                }
+
+                previousLength = info.Exists ? info.Length : -1;
+            }
+            catch
+            {
+                // OBS may still be finalizing the file.
+            }
+
+            await Task.Delay(300);
+        }
+    }
+
+    private static async Task CopyFileWithRetryAsync(string sourcePath, string destinationPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? ".");
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            try
+            {
+                File.Copy(sourcePath, destinationPath, overwrite: false);
+                return;
+            }
+            catch (IOException) when (attempt < 11)
+            {
+                await Task.Delay(350);
+            }
+            catch (UnauthorizedAccessException) when (attempt < 11)
+            {
+                await Task.Delay(350);
+            }
+        }
+
+        File.Copy(sourcePath, destinationPath, overwrite: false);
     }
 
     private async Task<ObsWebSocketClient> GetObsClientAsync()

@@ -136,6 +136,25 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
             parameterValue = value
         }, cancellationToken);
 
+    public async Task<string?> GetProfileParameterAsync(string category, string name, CancellationToken cancellationToken = default)
+    {
+        var response = await SendRequestAsync("GetProfileParameter", new
+        {
+            parameterCategory = category,
+            parameterName = name
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (!response.TryGetProperty("responseData", out var responseData) ||
+            !responseData.TryGetProperty("parameterValue", out var parameterValue))
+        {
+            return null;
+        }
+
+        return parameterValue.ValueKind == JsonValueKind.String
+            ? parameterValue.GetString()
+            : parameterValue.ToString();
+    }
+
     public async Task<ObsNameList> GetProfileListAsync(CancellationToken cancellationToken = default)
     {
         var response = await SendRequestAsync("GetProfileList", null, cancellationToken).ConfigureAwait(false);
