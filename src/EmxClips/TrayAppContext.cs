@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace EmxClips;
@@ -17,7 +18,9 @@ public sealed class TrayAppContext : ApplicationContext
     private const string EmxMicInputName = "EMX Mic Capture";
     private const string ObsMicInputKind = "wasapi_input_capture";
     private const string EmxObsProfileName = "EMX Clips";
+    private const string EmxObsProfileDirectoryName = "EMX_Clips";
     private const string EmxObsSceneCollectionName = "EMX Clips";
+    private const string EmxObsSceneCollectionFileName = "EMX_Clips";
     private const int DefaultCaptureFps = 60;
 
     private readonly AppSettings _settings;
@@ -340,13 +343,8 @@ public sealed class TrayAppContext : ApplicationContext
             throw new InvalidOperationException("Streamer safe setup stopped: OBS is currently streaming or recording, so EMX did not change profiles, scenes, or output settings. Stop the stream/recording first, or turn off Streamer safe OBS workspace in EMX settings if you want EMX to use the current OBS setup.");
         }
 
-        if (await client.GetReplayBufferActiveAsync())
-        {
-            await client.StopReplayBufferAsync();
-        }
-
-        await EnsureProfileAsync(client, EmxObsProfileName, profile);
-        await EnsureSceneCollectionAsync(client, EmxObsSceneCollectionName, sceneCollection);
+        throw new InvalidOperationException(
+            $"Streamer safe setup needs OBS opened in the EMX Clips workspace. Close OBS, fully exit EMX Clips, then open EMX Clips again so it can launch OBS into its own profile and scene collection. EMX no longer forces profile switches while OBS is already open. Current OBS profile: {profile.CurrentName}. Current scene collection: {sceneCollection.CurrentName}. You can also turn off Streamer safe OBS workspace if you want EMX to use the current OBS setup.");
     }
 
     private static async Task<bool> IsStreamingOrRecordingAsync(ObsWebSocketClient client)
@@ -359,32 +357,6 @@ public sealed class TrayAppContext : ApplicationContext
         {
             // If OBS cannot answer, prefer continuing for normal users instead of blocking setup.
             return false;
-        }
-    }
-
-    private static async Task EnsureProfileAsync(ObsWebSocketClient client, string profileName, ObsNameList profiles)
-    {
-        if (!profiles.Names.Contains(profileName, StringComparer.OrdinalIgnoreCase))
-        {
-            await client.CreateProfileAsync(profileName);
-        }
-
-        if (!string.Equals(profiles.CurrentName, profileName, StringComparison.OrdinalIgnoreCase))
-        {
-            await client.SetCurrentProfileAsync(profileName);
-        }
-    }
-
-    private static async Task EnsureSceneCollectionAsync(ObsWebSocketClient client, string sceneCollectionName, ObsNameList collections)
-    {
-        if (!collections.Names.Contains(sceneCollectionName, StringComparer.OrdinalIgnoreCase))
-        {
-            await client.CreateSceneCollectionAsync(sceneCollectionName);
-        }
-
-        if (!string.Equals(collections.CurrentName, sceneCollectionName, StringComparison.OrdinalIgnoreCase))
-        {
-            await client.SetCurrentSceneCollectionAsync(sceneCollectionName);
         }
     }
 
@@ -974,7 +946,7 @@ public sealed class TrayAppContext : ApplicationContext
 
     private string BuildStartBufferHelp(ObsRequestException ex)
     {
-        return $"OBS rejected starting the replay buffer. In OBS, open Settings > Output and make sure Replay Buffer is enabled. Also make sure your current OBS scene has a Game Capture, Display Capture, or Window Capture source. EMX tried to enable a {_settings.ReplayBufferSeconds}-second buffer.\n\nOBS detail: {ex.Message}";
+        return $"OBS rejected starting the replay buffer. Close OBS and reopen EMX Clips so EMX can launch OBS into the cloned EMX Clips workspace. If OBS still shows Starting the output failed, open OBS Settings > Output and choose a working recording encoder, or update your GPU drivers for NVENC/AMD. EMX tried to enable a {_settings.ReplayBufferSeconds}-second buffer.\n\nOBS detail: {ex.Message}";
     }
 
     private string BuildSaveClipHelp(ObsRequestException ex)
@@ -990,7 +962,7 @@ public sealed class TrayAppContext : ApplicationContext
             return;
         }
 
-        var args = _settings.MinimizeObsToTray ? "--minimize-to-tray" : "";
+        var args = BuildObsLaunchArguments();
         Process.Start(new ProcessStartInfo
         {
             FileName = obsPath,
@@ -1001,6 +973,231 @@ public sealed class TrayAppContext : ApplicationContext
 
         Thread.Sleep(2500);
     }
+
+    private string BuildObsLaunchArguments()
+    {
+        var args = new List<string>();
+        if (_settings.MinimizeObsToTray)
+        {
+            args.Add("--minimize-to-tray");
+        }
+
+        if (!_settings.UseDedicatedObsWorkspace)
+        {
+            return string.Join(' ', args);
+        }
+
+        var workspace = TryPrepareDedicatedObsWorkspace();
+        if (workspace.Prepared)
+        {
+            args.Add($"--profile {QuoteCommandArgument(EmxObsProfileName)}");
+            args.Add($"--collection {QuoteCommandArgument(EmxObsSceneCollectionName)}");
+            SetDashboardStatus("OBS launching in the EMX Clips workspace so stream scenes stay separate.");
+        }
+        else if (!string.IsNullOrWhiteSpace(workspace.Message))
+        {
+            SetDashboardStatus(workspace.Message);
+        }
+
+        return string.Join(' ', args);
+    }
+
+    private (bool Prepared, string? Message) TryPrepareDedicatedObsWorkspace()
+    {
+        try
+        {
+            var obsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "obs-studio");
+            var globalIniPath = Path.Combine(obsRoot, "global.ini");
+            if (!File.Exists(globalIniPath))
+            {
+                return (false, "OBS first-time setup is not finished yet. Open OBS once, then reopen EMX Clips.");
+            }
+
+            var basic = ReadIniSection(globalIniPath, "Basic");
+            if (!basic.TryGetValue("ProfileDir", out var sourceProfileDirectory) ||
+                string.IsNullOrWhiteSpace(sourceProfileDirectory))
+            {
+                return (false, "EMX could not read the current OBS profile folder. Open OBS once, close it, then reopen EMX Clips.");
+            }
+
+            if (!basic.TryGetValue("SceneCollectionFile", out var sourceSceneCollectionFile) ||
+                string.IsNullOrWhiteSpace(sourceSceneCollectionFile))
+            {
+                return (false, "EMX could not read the current OBS scene collection. Open OBS once, close it, then reopen EMX Clips.");
+            }
+
+            var profilesRoot = Path.Combine(obsRoot, "basic", "profiles");
+            var sourceProfilePath = Path.Combine(profilesRoot, sourceProfileDirectory);
+            var targetProfilePath = Path.Combine(profilesRoot, EmxObsProfileDirectoryName);
+            if (!Directory.Exists(sourceProfilePath) && !Directory.Exists(targetProfilePath))
+            {
+                return (false, "EMX could not find an OBS profile to clone. Create or finish an OBS profile first, then reopen EMX Clips.");
+            }
+
+            if (Directory.Exists(sourceProfilePath) && !SamePath(sourceProfilePath, targetProfilePath))
+            {
+                CopyDirectory(sourceProfilePath, targetProfilePath, overwrite: true);
+            }
+            else
+            {
+                Directory.CreateDirectory(targetProfilePath);
+            }
+
+            UpsertIniValue(Path.Combine(targetProfilePath, "basic.ini"), "General", "Name", EmxObsProfileName);
+
+            var scenesRoot = Path.Combine(obsRoot, "basic", "scenes");
+            var sourceScenePath = Path.Combine(scenesRoot, $"{sourceSceneCollectionFile}.json");
+            var targetScenePath = Path.Combine(scenesRoot, $"{EmxObsSceneCollectionFileName}.json");
+            if (File.Exists(sourceScenePath) && !SamePath(sourceScenePath, targetScenePath))
+            {
+                Directory.CreateDirectory(scenesRoot);
+                File.Copy(sourceScenePath, targetScenePath, overwrite: true);
+            }
+            else if (!File.Exists(targetScenePath))
+            {
+                return (false, "EMX could not find an OBS scene collection to clone. Create one in OBS first, then reopen EMX Clips.");
+            }
+
+            UpdateSceneCollectionName(targetScenePath, EmxObsSceneCollectionName);
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"EMX could not prepare the OBS workspace: {ex.Message}");
+        }
+    }
+
+    private static Dictionary<string, string> ReadIniSection(string path, string sectionName)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var inSection = false;
+        foreach (var rawLine in File.ReadLines(path))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith(';') || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            if (line.StartsWith('[') && line.EndsWith(']'))
+            {
+                inSection = string.Equals(line[1..^1], sectionName, StringComparison.OrdinalIgnoreCase);
+                continue;
+            }
+
+            if (!inSection)
+            {
+                continue;
+            }
+
+            var separator = line.IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            values[line[..separator].Trim()] = line[(separator + 1)..].Trim();
+        }
+
+        return values;
+    }
+
+    private static void CopyDirectory(string sourceDirectory, string targetDirectory, bool overwrite)
+    {
+        Directory.CreateDirectory(targetDirectory);
+        foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
+            var targetPath = Path.Combine(targetDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? targetDirectory);
+            File.Copy(sourcePath, targetPath, overwrite);
+        }
+    }
+
+    private static void UpsertIniValue(string path, string sectionName, string key, string value)
+    {
+        var lines = File.Exists(path)
+            ? File.ReadAllLines(path).ToList()
+            : new List<string>();
+        var sectionLine = -1;
+        var insertLine = lines.Count;
+        var inSection = false;
+
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var trimmed = lines[index].Trim();
+            if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+            {
+                if (inSection)
+                {
+                    insertLine = index;
+                    break;
+                }
+
+                inSection = string.Equals(trimmed[1..^1], sectionName, StringComparison.OrdinalIgnoreCase);
+                if (inSection)
+                {
+                    sectionLine = index;
+                    insertLine = index + 1;
+                }
+
+                continue;
+            }
+
+            if (!inSection)
+            {
+                continue;
+            }
+
+            var separator = trimmed.IndexOf('=');
+            if (separator > 0 && string.Equals(trimmed[..separator].Trim(), key, StringComparison.OrdinalIgnoreCase))
+            {
+                lines[index] = $"{key}={value}";
+                File.WriteAllLines(path, lines);
+                return;
+            }
+
+            insertLine = index + 1;
+        }
+
+        if (sectionLine < 0)
+        {
+            if (lines.Count > 0 && !string.IsNullOrWhiteSpace(lines[^1]))
+            {
+                lines.Add("");
+            }
+
+            lines.Add($"[{sectionName}]");
+            lines.Add($"{key}={value}");
+        }
+        else
+        {
+            lines.Insert(insertLine, $"{key}={value}");
+        }
+
+        File.WriteAllLines(path, lines);
+    }
+
+    private static void UpdateSceneCollectionName(string path, string name)
+    {
+        var json = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+        if (json is null)
+        {
+            return;
+        }
+
+        json["name"] = name;
+        File.WriteAllText(path, json.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static bool SamePath(string left, string right)
+    {
+        var normalizedLeft = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRight = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string QuoteCommandArgument(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
 
     private void OpenClipsFolder()
     {
