@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -174,6 +175,12 @@ public sealed class PhoneCompanionServer : IDisposable
             return;
         }
 
+        if (path.StartsWith("/phone/", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendPhoneClipFileAsync(stream, request, path["/phone/".Length..], cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         if (path.StartsWith("/download/", StringComparison.OrdinalIgnoreCase))
         {
             await SendClipFileAsync(stream, request, path["/download/".Length..], inline: false, cancellationToken).ConfigureAwait(false);
@@ -217,6 +224,7 @@ public sealed class PhoneCompanionServer : IDisposable
                     extension = Path.GetExtension(clip.Name).TrimStart('.').ToUpperInvariant(),
                     isPhoneFriendly = isMp4,
                     streamUrl = $"/clips/{id}",
+                    phoneUrl = $"/phone/{id}",
                     downloadUrl = $"/download/{id}"
                 };
             })
@@ -238,6 +246,76 @@ public sealed class PhoneCompanionServer : IDisposable
             return;
         }
 
+        await SendVideoPathAsync(stream, request, path, inline, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task SendPhoneClipFileAsync(NetworkStream stream, CompanionRequest request, string id, CancellationToken cancellationToken)
+    {
+        var path = ResolveClipPath(id);
+        if (path is null)
+        {
+            await SendTextAsync(stream, 404, "Not Found", "Clip not found", "text/plain; charset=utf-8", cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var phonePath = await ResolvePhoneClipPathAsync(path, cancellationToken).ConfigureAwait(false);
+        await SendVideoPathAsync(stream, request, phonePath, inline: true, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string> ResolvePhoneClipPathAsync(string path, CancellationToken cancellationToken)
+    {
+        if (ObsTools.ResolveFfmpegPath(_settings.ObsPath) is null)
+        {
+            return path;
+        }
+
+        var info = new FileInfo(path);
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{info.FullName}|{info.Length}|{info.LastWriteTimeUtc.Ticks}")))[..16];
+        var safeName = Path.GetFileNameWithoutExtension(info.Name);
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            safeName = safeName.Replace(invalid, '_');
+        }
+
+        var cacheDir = Path.Combine(AppSettings.ConfigDirectory, "phone-cache");
+        Directory.CreateDirectory(cacheDir);
+        var destination = Path.Combine(cacheDir, $"{safeName}-{key}.mp4");
+        if (File.Exists(destination) && new FileInfo(destination).Length > 0)
+        {
+            return destination;
+        }
+
+        var temp = Path.Combine(cacheDir, $"{Guid.NewGuid():N}.tmp.mp4");
+        try
+        {
+            await ClipExporter.ExportPhoneMp4Async(new ClipFile(path, info.Name, info.LastWriteTime, info.Length), temp, _settings.ObsPath, cancellationToken).ConfigureAwait(false);
+            File.Move(temp, destination, overwrite: true);
+            return destination;
+        }
+        catch
+        {
+            TryDelete(temp);
+            return path;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best effort cache cleanup.
+        }
+    }
+
+    private static async Task SendVideoPathAsync(NetworkStream stream, CompanionRequest request, string path, bool inline, CancellationToken cancellationToken)
+    {
         var info = new FileInfo(path);
         var fileLength = info.Length;
         var start = 0L;
@@ -402,6 +480,8 @@ public sealed class PhoneCompanionServer : IDisposable
         headers["Access-Control-Allow-Origin"] = "*";
         headers["Access-Control-Allow-Headers"] = "Range, Content-Type";
         headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS";
+        headers["Access-Control-Expose-Headers"] = "Accept-Ranges, Content-Length, Content-Range, Content-Disposition, Content-Type";
+        headers["Cross-Origin-Resource-Policy"] = "cross-origin";
         headers["Cache-Control"] = "no-store";
         headers["Server"] = "EMX-Clips-Companion";
 
@@ -765,6 +845,7 @@ function renderClips(clips) {
     const card = document.createElement("article");
     card.className = "clip";
     const streamUrl = new URL(clip.streamUrl, location.href).href;
+    const phoneUrl = new URL(clip.phoneUrl || clip.streamUrl, location.href).href;
     const downloadUrl = new URL(clip.downloadUrl, location.href).href;
     card.innerHTML = `
       <div class="clip-head">
@@ -774,41 +855,48 @@ function renderClips(clips) {
         </div>
         <span class="badge">${clip.extension}</span>
       </div>
-      <video controls playsinline preload="metadata" src="${streamUrl}"></video>
+      <video controls playsinline preload="none" src="${phoneUrl}"></video>
       ${clip.isPhoneFriendly ? "" : `<p class="meta">For iPhone playback, export this clip as MP4 in EMX Clips first.</p>`}
       <div class="clip-actions">
-        <a class="button primary" href="${streamUrl}" target="_blank" rel="noreferrer">Open Video</a>
-        <a class="button" href="${downloadUrl}" download>Download</a>
-        <button class="button" type="button" data-share="${clip.id}">Share / Save</button>
+        <a class="button primary" href="${phoneUrl}" target="_blank" rel="noreferrer">Save to Photos</a>
+        <a class="button" href="${downloadUrl}" download>Files Download</a>
+        <button class="button" type="button" data-share="${clip.id}">Share Clip</button>
         <button class="button" type="button" data-copy="${clip.id}">Copy Link</button>
       </div>
     `;
     clipsEl.append(card);
-    card.querySelector("[data-share]")?.addEventListener("click", () => shareClip(clip, streamUrl));
-    card.querySelector("[data-copy]")?.addEventListener("click", event => copyLink(event.currentTarget, streamUrl));
+    card.querySelector("[data-share]")?.addEventListener("click", () => shareClip(clip, phoneUrl));
+    card.querySelector("[data-copy]")?.addEventListener("click", event => copyLink(event.currentTarget, phoneUrl));
   }
 }
 
 async function shareClip(clip, streamUrl) {
+  const fallbackWindow = window.open("about:blank", "_blank");
   try {
-    if (navigator.canShare && navigator.share && window.isSecureContext && clip.isPhoneFriendly) {
+    if (navigator.canShare && navigator.share && window.isSecureContext) {
       const response = await fetch(streamUrl);
       const blob = await response.blob();
-      const file = new File([blob], clip.name, { type: blob.type || "video/mp4" });
+      const file = new File([blob], phoneFileName(clip.name), { type: blob.type || "video/mp4" });
       if (navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: clip.name, text: "EMX Clips" });
+        fallbackWindow?.close();
         return;
       }
     }
 
     if (navigator.share) {
       await navigator.share({ title: clip.name, text: "EMX Clips", url: streamUrl });
+      fallbackWindow?.close();
       return;
     }
   } catch {
   }
 
-  window.open(streamUrl, "_blank", "noopener,noreferrer");
+  if (fallbackWindow) {
+    fallbackWindow.location.href = streamUrl;
+  } else {
+    window.open(streamUrl, "_blank", "noopener,noreferrer");
+  }
 }
 
 async function copyLink(button, streamUrl) {
@@ -825,6 +913,10 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function phoneFileName(name) {
+  return String(name || "EMX clip.mp4").replace(/\.[^.\\/]+$/, "") + ".mp4";
 }
 """;
 }

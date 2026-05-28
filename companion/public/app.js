@@ -355,10 +355,12 @@ function cloudClipRow(clip) {
     <div class="cloud-meta">
       <strong>${escapeHtml(name)}</strong>
       <span>${escapeHtml(size)}</span>
+      <small>iPhone: Save to Photos opens the video. Tap the iOS Share button, then Save Video.</small>
     </div>
     <div class="actions compact">
-      <a class="button primary" href="${escapeAttr(url)}" download="${escapeAttr(name)}">Download</a>
-      <button class="button" type="button">Share / Save</button>
+      <a class="button primary" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">Save to Photos</a>
+      <a class="button" href="${escapeAttr(url)}" download="${escapeAttr(name)}">Files Download</a>
+      <button class="button" type="button">Share Clip</button>
     </div>
   `;
 
@@ -368,19 +370,35 @@ function cloudClipRow(clip) {
 }
 
 async function shareCloudClip(url, name, contentType) {
+  const fallbackWindow = window.open("about:blank", "_blank");
   try {
     const response = await fetch(url);
     const blob = await response.blob();
     const file = new File([blob], name, { type: contentType });
     if (navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: name, text: "EMX Clips" });
+      fallbackWindow?.close();
       return;
     }
   } catch {
-    // Fall back to opening the file below.
+    // Fall back to opening the video below.
   }
 
-  window.open(url, "_blank", "noopener,noreferrer");
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: name, text: "EMX Clips", url });
+      fallbackWindow?.close();
+      return;
+    }
+  } catch {
+    // Fall back to opening the video below.
+  }
+
+  if (fallbackWindow) {
+    fallbackWindow.location.href = url;
+  } else {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 }
 
 function escapeHtml(value) {
@@ -486,22 +504,30 @@ async function loadRemoteClips(portalUrl) {
 
 function remoteClipRow(portalUrl, clip) {
   const streamUrl = new URL(clip.streamUrl, `${portalUrl}/`).href;
+  const phoneUrl = new URL(clip.phoneUrl || clip.streamUrl, `${portalUrl}/`).href;
   const downloadUrl = new URL(clip.downloadUrl, `${portalUrl}/`).href;
   const row = document.createElement("div");
   row.className = "cloud-clip";
   row.innerHTML = `
-    <video class="cloud-video" src="${escapeAttr(streamUrl)}" controls playsinline preload="metadata"></video>
+    <video class="cloud-video" src="${escapeAttr(phoneUrl)}" controls playsinline preload="none"></video>
     <div class="cloud-meta">
       <strong>${escapeHtml(clip.name || "EMX clip")}</strong>
       <span>${escapeHtml(clip.size || "")} ${clip.extension ? "- " + escapeHtml(clip.extension) : ""}</span>
+      <small>iPhone: Save to Photos opens the phone-ready MP4. Tap the iOS Share button, then Save Video. Files Download goes to Files.</small>
     </div>
     <div class="actions compact">
-      <a class="button primary" href="${escapeAttr(downloadUrl)}" download>Download</a>
-      <button class="button" type="button">Share / Save</button>
+      <a class="button primary" href="${escapeAttr(phoneUrl)}" target="_blank" rel="noreferrer">Save to Photos</a>
+      <button class="button" type="button" data-share>Share Clip</button>
+      <a class="button" href="${escapeAttr(downloadUrl)}" download>Files Download</a>
+      <a class="button" href="${escapeAttr(streamUrl)}" target="_blank" rel="noreferrer">Raw Video</a>
     </div>
   `;
 
-  row.querySelector("button")?.addEventListener("click", () =>
-    shareCloudClip(streamUrl, clip.name || "EMX clip.mp4", clip.isPhoneFriendly ? "video/mp4" : "application/octet-stream"));
+  row.querySelector("[data-share]")?.addEventListener("click", () =>
+    shareCloudClip(phoneUrl, phoneFileName(clip.name || "EMX clip.mp4"), "video/mp4"));
   return row;
+}
+
+function phoneFileName(name) {
+  return String(name || "EMX clip.mp4").replace(/\.[^.\\/]+$/, "") + ".mp4";
 }

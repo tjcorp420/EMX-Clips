@@ -253,6 +253,12 @@ h2 {
   font-size: 0.88rem;
 }
 
+.cloud-meta small {
+  color: var(--green-soft);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .local-link {
   display: grid;
   gap: 8px;

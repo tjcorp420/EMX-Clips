@@ -38,6 +38,27 @@ public static class ClipExporter
         }
     }
 
+    public static async Task ExportPhoneMp4Async(ClipFile clip, string destinationPath, string? configuredObsPath = null, CancellationToken cancellationToken = default)
+    {
+        var ffmpeg = ObsTools.ResolveFfmpegPath(configuredObsPath);
+        if (ffmpeg is null)
+        {
+            throw new InvalidOperationException("Phone MP4 export needs FFmpeg from OBS or PATH.");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? Environment.CurrentDirectory);
+
+        var encodeResult = await RunFfmpegAsync(
+            ffmpeg,
+            $"-hide_banner -y -i {Quote(clip.FullPath)} -map 0:v:0 -map 0:a? -vf scale=trunc(iw/2)*2:trunc(ih/2)*2 -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -profile:v high -level 4.2 -c:a aac -b:a 160k -movflags +faststart {Quote(destinationPath)}",
+            cancellationToken);
+
+        if (encodeResult.ExitCode != 0 || !File.Exists(destinationPath))
+        {
+            throw new InvalidOperationException($"Phone MP4 export failed.\n\nFFmpeg detail: {encodeResult.ErrorText}");
+        }
+    }
+
     private static async Task<(int ExitCode, string ErrorText)> RunFfmpegAsync(string ffmpegPath, string arguments, CancellationToken cancellationToken)
     {
         using var process = new Process

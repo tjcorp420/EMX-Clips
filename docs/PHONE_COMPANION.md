@@ -17,9 +17,11 @@ It also has optional Firebase Remote Share for keeping the phone inside the Verc
 
 iOS does not let a web app silently save a video straight into Photos. Use:
 
-1. Tap `Open Video`.
+1. Tap `Save to Photos`.
 2. Tap the iOS Share button.
 3. Tap `Save Video`.
+
+`Files Download` is still available, but iOS sends normal browser downloads to the Files app. That is expected iPhone behavior.
 
 ## Troubleshooting
 
@@ -27,4 +29,5 @@ iOS does not let a web app silently save a video straight into Photos. Use:
 - MP4 files work best on phones. If a clip is MKV, use `Export MP4` in EMX Clips first.
 - The Vercel companion page is the branded phone entry point and has its own QR scanner.
 - Firebase Remote Share uses Realtime Database plus a secure tunnel so the phone can view clips outside local Wi-Fi while EMX Clips stays open on the PC.
+- v0.1.12 adds a phone-ready MP4 stream for the `Save to Photos` and `Share Clip` buttons. The first tap may take a moment while EMX prepares the phone copy.
 - If you see a raw `http://10.x.x.x:4788/` link, you are in local fallback mode. Use v0.1.11 or newer and keep the Firebase API key plus Realtime Database URL filled in Settings.
