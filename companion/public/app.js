@@ -15,9 +15,13 @@ const scannerStatus = document.querySelector("#scannerStatus");
 const query = new URLSearchParams(window.location.search);
 let currentPortalUrl = query.get("portal") || query.get("pc") || "";
 const cloudIndexUrl = query.get("cloudIndex") || "";
+const remoteSessionUrl = query.get("remoteSession") || "";
+const firebaseApiKey = query.get("apiKey") || "";
 let scannerStream = null;
 let scannerFrameId = 0;
 let scannerActive = false;
+let firebaseAuthToken = "";
+let remotePollTimer = 0;
 
 const clips = [
   { title: "Replay 00:30", meta: "Ready for preview and share" },
@@ -27,7 +31,9 @@ const clips = [
 
 let installPrompt = null;
 
-if (cloudIndexUrl) {
+if (remoteSessionUrl) {
+  loadRemoteShare();
+} else if (cloudIndexUrl) {
   loadCloudClips(cloudIndexUrl);
 } else {
   for (const clip of clips) {
@@ -70,6 +76,12 @@ if (cloudIndexUrl) {
   installTitle.textContent = "Cloud library connected";
   installText.textContent = "Your clips are loading inside the EMX Companion app from Firebase Cloud Share.";
   setScannerStatus("Firebase Cloud Share connected.");
+}
+
+if (remoteSessionUrl) {
+  installTitle.textContent = "Remote share connected";
+  installText.textContent = "Your phone is staying inside the Vercel app while EMX streams clips from your PC tunnel.";
+  setScannerStatus("Firebase Remote Share connected.");
 }
 
 window.addEventListener("beforeinstallprompt", event => {
@@ -383,4 +395,113 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value);
+}
+
+async function loadRemoteShare() {
+  clipList.replaceChildren();
+  clipList.append(statusRow("Connecting to EMX Remote Share...", "Reading session from Realtime Database"));
+
+  try {
+    const session = await readRemoteSession();
+    const portalUrl = String(session.portalUrl || "").replace(/\/$/, "");
+    if (!portalUrl || !isHttpUrl(portalUrl)) {
+      throw new Error("Session has no tunnel URL yet.");
+    }
+
+    installTitle.textContent = "Connected to PC";
+    installText.textContent = `${session.pcName || "EMX PC"} is sharing clips through a secure tunnel. Keep EMX Clips open on the PC.`;
+    await loadRemoteClips(portalUrl);
+
+    window.clearInterval(remotePollTimer);
+    remotePollTimer = window.setInterval(() => {
+      loadRemoteClips(portalUrl).catch(() => {});
+    }, 10000);
+  } catch (error) {
+    clipList.replaceChildren();
+    clipList.append(statusRow("Remote share not ready.", error?.message || "Open Phone Share again on the PC."));
+    installTitle.textContent = "Remote share failed";
+    installText.textContent = "Open Phone Share again in EMX Clips. If it still fails, check Firebase rules and Anonymous Auth.";
+  }
+}
+
+async function readRemoteSession() {
+  let url = remoteSessionUrl;
+  const token = await firebaseToken();
+  if (token) {
+    url += `${url.includes("?") ? "&" : "?"}auth=${encodeURIComponent(token)}`;
+  }
+
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Realtime Database returned ${response.status}`);
+  }
+
+  const session = await response.json();
+  if (!session) {
+    throw new Error("No remote share session was found.");
+  }
+
+  return session;
+}
+
+async function firebaseToken() {
+  if (firebaseAuthToken || !firebaseApiKey) {
+    return firebaseAuthToken;
+  }
+
+  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(firebaseApiKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ returnSecureToken: true })
+  });
+
+  if (!response.ok) {
+    return "";
+  }
+
+  const auth = await response.json();
+  firebaseAuthToken = auth.idToken || "";
+  return firebaseAuthToken;
+}
+
+async function loadRemoteClips(portalUrl) {
+  const [status, data] = await Promise.all([
+    fetch(`${portalUrl}/api/status`, { cache: "no-store" }).then(response => response.json()),
+    fetch(`${portalUrl}/api/clips`, { cache: "no-store" }).then(response => response.json())
+  ]);
+
+  const clips = Array.isArray(data.clips) ? data.clips : [];
+  clipList.replaceChildren();
+
+  if (clips.length === 0) {
+    clipList.append(statusRow("Connected, no clips yet.", "Save a clip on PC, then this list refreshes automatically."));
+    return;
+  }
+
+  installText.textContent = `${status.count ?? clips.length} clips from ${status.pcName || "EMX PC"}.`;
+  for (const clip of clips) {
+    clipList.append(remoteClipRow(portalUrl, clip));
+  }
+}
+
+function remoteClipRow(portalUrl, clip) {
+  const streamUrl = new URL(clip.streamUrl, `${portalUrl}/`).href;
+  const downloadUrl = new URL(clip.downloadUrl, `${portalUrl}/`).href;
+  const row = document.createElement("div");
+  row.className = "cloud-clip";
+  row.innerHTML = `
+    <video class="cloud-video" src="${escapeAttr(streamUrl)}" controls playsinline preload="metadata"></video>
+    <div class="cloud-meta">
+      <strong>${escapeHtml(clip.name || "EMX clip")}</strong>
+      <span>${escapeHtml(clip.size || "")} ${clip.extension ? "- " + escapeHtml(clip.extension) : ""}</span>
+    </div>
+    <div class="actions compact">
+      <a class="button primary" href="${escapeAttr(downloadUrl)}" download>Download</a>
+      <button class="button" type="button">Share / Save</button>
+    </div>
+  `;
+
+  row.querySelector("button")?.addEventListener("click", () =>
+    shareCloudClip(streamUrl, clip.name || "EMX clip.mp4", clip.isPhoneFriendly ? "video/mp4" : "application/octet-stream"));
+  return row;
 }

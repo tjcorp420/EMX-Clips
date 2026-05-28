@@ -1,16 +1,16 @@
 # EMX Phone Companion
 
-EMX Clips includes a local phone companion server for moving clips from PC to phone.
+EMX Clips includes a phone companion server for moving clips from PC to phone.
 
-It also has optional Firebase Cloud Share for keeping the phone inside the Vercel companion app. See [Firebase Cloud Share](FIREBASE_CLOUD_SHARE.md).
+It also has optional Firebase Remote Share for keeping the phone inside the Vercel companion app without Firebase Storage. See [Firebase Remote Share](FIREBASE_REMOTE_SHARE.md).
 
 ## How To Use
 
 1. Open EMX Clips on the PC.
 2. Click `Phone Share` on the Clips tab or `Phone Companion` on Settings.
 3. Scan the QR code with your phone camera, or open the installed EMX Companion PWA and tap `Scan PC QR`.
-4. Tap `Open My PC Clips` on the EMX Companion page.
-5. Keep the PC and phone on the same Wi-Fi.
+4. In Firebase Remote Share mode, the Vercel app opens the clip library inside the app.
+5. In local Wi-Fi mode, tap `Open My PC Clips` and keep the PC and phone on the same Wi-Fi.
 6. Preview, open, download, or share clips from the phone page.
 
 ## iPhone Photos
@@ -25,4 +25,5 @@ iOS does not let a web app silently save a video straight into Photos. Use:
 
 - If the phone cannot connect, allow EMX Clips through Windows Firewall for Private networks.
 - MP4 files work best on phones. If a clip is MKV, use `Export MP4` in EMX Clips first.
-- The Vercel companion page is the branded phone entry point and has its own QR scanner. Real-time clip viewing still comes from the local PC companion link it opens.
+- The Vercel companion page is the branded phone entry point and has its own QR scanner.
+- Firebase Remote Share uses Realtime Database plus a secure tunnel so the phone can view clips outside local Wi-Fi while EMX Clips stays open on the PC.

@@ -770,7 +770,7 @@ function renderClips(clips) {
       <div class="clip-head">
         <div>
           <h2>${escapeHtml(clip.name)}</h2>
-          <div class="meta">${clip.size} • ${new Date(clip.modifiedAt).toLocaleString()}</div>
+          <div class="meta">${clip.size} - ${new Date(clip.modifiedAt).toLocaleString()}</div>
         </div>
         <span class="badge">${clip.extension}</span>
       </div>

@@ -28,6 +28,7 @@ public sealed class TrayAppContext : ApplicationContext
     private ObsWebSocketClient? _obsClient;
     private PhoneCompanionServer? _phoneCompanionServer;
     private PhoneCompanionForm? _phoneCompanionForm;
+    private FirebaseRemoteShare? _firebaseRemoteShare;
     private const string HostedCompanionUrl = "https://emx-clips-companion.vercel.app/";
     private DashboardForm? _dashboard;
     private bool _busy;
@@ -976,30 +977,32 @@ public sealed class TrayAppContext : ApplicationContext
 
     private async Task OpenFirebaseCloudCompanionAsync()
     {
-        if (!FirebaseCloudShare.IsConfigured(_settings))
+        if (!FirebaseRemoteShare.IsConfigured(_settings))
         {
-            var setupMessage = "Firebase Cloud Share needs API key and Storage bucket in Settings.";
+            var setupMessage = "Firebase Remote Share needs API key and Realtime Database URL in Settings.";
             ShowBalloon("EMX Clips", setupMessage, ToolTipIcon.Warning);
             SetDashboardStatus(setupMessage);
             OpenDashboard();
             return;
         }
 
-        SetDashboardStatus("Uploading latest MP4 clips to Firebase Cloud Share...");
-        ShowBalloon("Cloud Share", "Uploading latest MP4 clips to Firebase. Keep EMX Clips open.", ToolTipIcon.Info);
+        SetDashboardStatus("Starting EMX Remote Share tunnel and publishing Firebase session...");
+        ShowBalloon("Remote Share", "Starting secure tunnel. Keep EMX Clips open while your phone views clips.", ToolTipIcon.Info);
 
-        var result = await FirebaseCloudShare.PublishLatestAsync(_settings).ConfigureAwait(true);
+        _phoneCompanionServer ??= new PhoneCompanionServer(_settings);
+        _firebaseRemoteShare ??= new FirebaseRemoteShare(_settings, _phoneCompanionServer);
+        var result = await _firebaseRemoteShare.StartAsync().ConfigureAwait(true);
         if (_phoneCompanionForm is null || _phoneCompanionForm.IsDisposed)
         {
-            _phoneCompanionForm = new PhoneCompanionForm(result.CompanionUrl, "Firebase Cloud Share - stays inside the Vercel phone app", _icon);
+            _phoneCompanionForm = new PhoneCompanionForm(result.CompanionUrl, result.TunnelUrl, _icon);
             _phoneCompanionForm.FormClosed += (_, _) => _phoneCompanionForm = null;
         }
 
         _phoneCompanionForm.Show();
         _phoneCompanionForm.Activate();
         Clipboard.SetText(result.CompanionUrl);
-        ShowBalloon("Cloud Share ready", $"Uploaded {result.UploadedClips} clip(s). Scan QR to open clips in the Vercel app.", ToolTipIcon.Info);
-        SetDashboardStatus($"Firebase Cloud Share ready: {result.UploadedClips} clip(s), {ClipLibrary.FormatSize(result.UploadedBytes)} uploaded. QR link copied.");
+        ShowBalloon("Remote Share ready", $"Session live with {result.ClipCount} clip(s). Scan QR to view clips in the Vercel app.", ToolTipIcon.Info);
+        SetDashboardStatus($"Firebase Remote Share ready: {result.ClipCount} clip(s) available through {result.TunnelUrl}. QR link copied.");
     }
 
     private static string BuildHostedCompanionUrl(string localPortalUrl)
@@ -1190,6 +1193,7 @@ public sealed class TrayAppContext : ApplicationContext
         _toggleHotkeyWindow.Dispose();
         _icon.Dispose();
         _phoneCompanionForm?.Dispose();
+        _firebaseRemoteShare?.Dispose();
         _phoneCompanionServer?.Dispose();
         _obsClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         base.ExitThreadCore();

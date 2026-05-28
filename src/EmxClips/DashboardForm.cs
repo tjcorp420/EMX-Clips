@@ -492,12 +492,12 @@ public sealed class DashboardForm : Form
         AddRow(grid, 11, "Clips folder", _clipsFolder, Button("Browse", ButtonKind.Secondary, BrowseClipsFolder));
         AddRow(grid, 12, "OBS path", _obsPath, Button("Browse", ButtonKind.Secondary, BrowseObsPath));
 
-        _useFirebaseCloudShare.Text = "Use Firebase Cloud Share instead of local Wi-Fi portal";
+        _useFirebaseCloudShare.Text = "Use Firebase Remote Share instead of local Wi-Fi portal";
         StyleCheckBox(_useFirebaseCloudShare);
-        AddRow(grid, 13, "Cloud share", _useFirebaseCloudShare, null);
+        AddRow(grid, 13, "Remote share", _useFirebaseCloudShare, null);
         AddRow(grid, 14, "Firebase API key", _firebaseApiKey, null);
-        AddRow(grid, 15, "Firebase bucket", _firebaseStorageBucket, null);
-        AddRow(grid, 16, "Cloud session", _firebaseSessionId, Button("New", ButtonKind.Secondary, ResetFirebaseSession));
+        AddRow(grid, 15, "Realtime DB URL", _firebaseStorageBucket, null);
+        AddRow(grid, 16, "Remote session", _firebaseSessionId, Button("New", ButtonKind.Secondary, ResetFirebaseSession));
 
         _autoLaunch.Text = "Auto-launch OBS";
         _autoStart.Text = "Auto-start replay buffer";
@@ -990,8 +990,8 @@ public sealed class DashboardForm : Form
         _useFirebaseCloudShare.Checked = _settings.UseFirebaseCloudShare;
         _firebaseApiKey.Text = _settings.FirebaseApiKey;
         _firebaseApiKey.PlaceholderText = "Firebase Web API key";
-        _firebaseStorageBucket.Text = _settings.FirebaseStorageBucket;
-        _firebaseStorageBucket.PlaceholderText = "your-project.firebasestorage.app";
+        _firebaseStorageBucket.Text = _settings.FirebaseDatabaseUrl;
+        _firebaseStorageBucket.PlaceholderText = "https://your-project-default-rtdb.firebaseio.com";
         _firebaseSessionId.Text = _settings.FirebaseSessionId;
         _firebaseSessionId.PlaceholderText = "Auto-generated share room";
 
@@ -1020,7 +1020,7 @@ public sealed class DashboardForm : Form
         _settings.CaptureMicrophone = _captureMic.Checked;
         _settings.UseFirebaseCloudShare = _useFirebaseCloudShare.Checked;
         _settings.FirebaseApiKey = _firebaseApiKey.Text.Trim();
-        _settings.FirebaseStorageBucket = _firebaseStorageBucket.Text.Trim();
+        _settings.FirebaseDatabaseUrl = _firebaseStorageBucket.Text.Trim();
         _settings.FirebaseSessionId = string.IsNullOrWhiteSpace(_firebaseSessionId.Text)
             ? Guid.NewGuid().ToString("N")
             : _firebaseSessionId.Text.Trim();
@@ -1046,7 +1046,7 @@ public sealed class DashboardForm : Form
     private void ResetFirebaseSession()
     {
         _firebaseSessionId.Text = Guid.NewGuid().ToString("N");
-        SetStatus("New Firebase cloud session created. Save settings before sharing.");
+        SetStatus("New Firebase remote session created. Save settings before sharing.");
     }
 
     private void LoadMicrophoneDevices()

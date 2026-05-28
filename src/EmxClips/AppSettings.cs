@@ -17,6 +17,9 @@ public enum HotkeyModifiers : uint
 public sealed class AppSettings
 {
     private const string DefaultUpdateManifestUrl = "https://github.com/tjcorp420/EMX-Clips/releases/latest/download/update-manifest.json";
+    private const string DefaultFirebaseApiKey = "AIzaSyAxrbDRZWicKlAEHcMHkrJ5o7rT1lJlty0";
+    private const string DefaultFirebaseStorageBucket = "emxclips-86f00.firebasestorage.app";
+    private const string DefaultFirebaseDatabaseUrl = "https://emxclips-86f00-default-rtdb.firebaseio.com";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -38,8 +41,9 @@ public sealed class AppSettings
     public string MicrophoneDeviceId { get; set; } = "default";
     public string MicrophoneDeviceName { get; set; } = "Default";
     public bool UseFirebaseCloudShare { get; set; }
-    public string FirebaseApiKey { get; set; } = "";
-    public string FirebaseStorageBucket { get; set; } = "";
+    public string FirebaseApiKey { get; set; } = DefaultFirebaseApiKey;
+    public string FirebaseStorageBucket { get; set; } = DefaultFirebaseStorageBucket;
+    public string FirebaseDatabaseUrl { get; set; } = DefaultFirebaseDatabaseUrl;
     public string FirebaseSessionId { get; set; } = "";
     public bool SetupCompleted { get; set; }
     public Keys HotkeyKey { get; set; } = Keys.F8;
@@ -90,6 +94,21 @@ public sealed class AppSettings
         if (string.IsNullOrWhiteSpace(FirebaseSessionId))
         {
             FirebaseSessionId = Guid.NewGuid().ToString("N");
+        }
+
+        if (string.IsNullOrWhiteSpace(FirebaseApiKey))
+        {
+            FirebaseApiKey = DefaultFirebaseApiKey;
+        }
+
+        if (string.IsNullOrWhiteSpace(FirebaseStorageBucket))
+        {
+            FirebaseStorageBucket = DefaultFirebaseStorageBucket;
+        }
+
+        if (string.IsNullOrWhiteSpace(FirebaseDatabaseUrl))
+        {
+            FirebaseDatabaseUrl = DefaultFirebaseDatabaseUrl;
         }
 
         if (string.IsNullOrWhiteSpace(UpdateManifestUrl) ||
