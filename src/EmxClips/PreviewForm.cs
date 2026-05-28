@@ -1,24 +1,24 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Windows.Forms.Integration;
-using WpfMediaElement = System.Windows.Controls.MediaElement;
-using WpfMediaState = System.Windows.Controls.MediaState;
-using WpfStretch = System.Windows.Media.Stretch;
+using System.Text.Json;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 namespace EmxClips;
 
 public sealed class PreviewForm : Form
 {
+    private const string PreviewHostName = "emxclips.local";
+
     private readonly ClipFile _clip;
     private readonly Image? _logo;
-    private readonly WpfMediaElement _player = new();
+    private readonly WebView2 _player = new();
     private readonly Label _status = new();
     private readonly Label _time = new();
     private readonly TrackBar _seek = new();
-    private readonly System.Windows.Forms.Timer _positionTimer = new() { Interval = 250 };
     private TimeSpan _duration = TimeSpan.Zero;
-    private bool _isPlaying;
     private bool _isSeeking;
+    private bool _messagesAttached;
 
     public PreviewForm(ClipFile clip, Image? logo, Icon? icon)
     {
@@ -40,14 +40,8 @@ public sealed class PreviewForm : Form
         DoubleBuffered = true;
 
         Controls.Add(BuildLayout());
-        _positionTimer.Tick += (_, _) => UpdateSeekFromPlayer();
         Load += (_, _) => StartPreview();
-        FormClosed += (_, _) =>
-        {
-            _positionTimer.Stop();
-            _player.Stop();
-            _player.Source = null;
-        };
+        FormClosed += (_, _) => _player.Dispose();
     }
 
     private Control BuildLayout()
@@ -156,38 +150,18 @@ public sealed class PreviewForm : Form
             Margin = new Padding(16, 12, 16, 0)
         };
 
-        _player.LoadedBehavior = WpfMediaState.Manual;
-        _player.UnloadedBehavior = WpfMediaState.Manual;
-        _player.Stretch = WpfStretch.Uniform;
-        _player.MediaOpened += (_, _) =>
+        _player.DefaultBackgroundColor = EmxTheme.Surface;
+        _player.Dock = DockStyle.Fill;
+        _player.BackColor = EmxTheme.Surface;
+        _player.CoreWebView2InitializationCompleted += (_, e) =>
         {
-            _duration = _player.NaturalDuration.HasTimeSpan
-                ? _player.NaturalDuration.TimeSpan
-                : TimeSpan.Zero;
-            _seek.Enabled = _duration > TimeSpan.Zero;
-            _seek.Maximum = Math.Max(1, (int)Math.Min(int.MaxValue, _duration.TotalMilliseconds));
-            _seek.Value = 0;
-            _positionTimer.Start();
-            _status.Text = "Preview playing";
-            _isPlaying = true;
-        };
-        _player.MediaEnded += (_, _) =>
-        {
-            _player.Position = TimeSpan.Zero;
-            _player.Play();
-        };
-        _player.MediaFailed += (_, e) =>
-        {
-            _status.Text = $"Preview failed: {e.ErrorException.Message}";
+            if (!e.IsSuccess)
+            {
+                _status.Text = "Preview engine failed. Click Open External.";
+            }
         };
 
-        var host = new ElementHost
-        {
-            Dock = DockStyle.Fill,
-            BackColor = EmxTheme.Surface,
-            Child = _player
-        };
-        border.Controls.Add(host);
+        border.Controls.Add(_player);
         return border;
     }
 
@@ -271,13 +245,33 @@ public sealed class PreviewForm : Form
         return root;
     }
 
-    private void StartPreview()
+    private async void StartPreview()
     {
         try
         {
-            _player.Source = new Uri(_clip.FullPath);
-            _player.Play();
-            _isPlaying = true;
+            _status.Text = "Loading preview";
+            await _player.EnsureCoreWebView2Async();
+            if (!_messagesAttached)
+            {
+                _player.CoreWebView2.WebMessageReceived += (_, e) => HandlePlayerMessage(e.WebMessageAsJson);
+                _messagesAttached = true;
+            }
+
+            _player.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            _player.CoreWebView2.Settings.AreDevToolsEnabled = false;
+
+            var clipFolder = Path.GetDirectoryName(_clip.FullPath) ?? Environment.CurrentDirectory;
+            _player.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                PreviewHostName,
+                clipFolder,
+                CoreWebView2HostResourceAccessKind.Allow);
+
+            var clipUrl = $"https://{PreviewHostName}/{Uri.EscapeDataString(Path.GetFileName(_clip.FullPath))}";
+            _player.NavigateToString(BuildPlayerHtml(clipUrl));
+        }
+        catch (WebView2RuntimeNotFoundException)
+        {
+            _status.Text = "Preview engine missing. Click Open External.";
         }
         catch (Exception ex)
         {
@@ -285,28 +279,23 @@ public sealed class PreviewForm : Form
         }
     }
 
-    private void TogglePlayback()
+    private async void TogglePlayback()
     {
-        if (_isPlaying)
+        if (!await ExecutePlayerScriptAsync("window.emxToggle && window.emxToggle();"))
         {
-            _player.Pause();
-            _status.Text = "Paused";
-            _isPlaying = false;
+            OpenExternal();
+        }
+    }
+
+    private async void Restart()
+    {
+        if (await ExecutePlayerScriptAsync("window.emxRestart && window.emxRestart();"))
+        {
+            _status.Text = "Restarted";
             return;
         }
 
-        _player.Play();
-        _status.Text = "Preview playing";
-        _isPlaying = true;
-    }
-
-    private void Restart()
-    {
-        _player.Position = TimeSpan.Zero;
-        _player.Play();
-        _isPlaying = true;
-        _status.Text = "Restarted";
-        UpdateSeekFromPlayer();
+        OpenExternal();
     }
 
     private void SeekToSliderPosition()
@@ -317,18 +306,172 @@ public sealed class PreviewForm : Form
         }
 
         var position = TimeSpan.FromMilliseconds(_seek.Value);
-        _player.Position = position;
         _time.Text = FormatTime(position, _duration);
+        _ = ExecutePlayerScriptAsync($"window.emxSeek && window.emxSeek({position.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)});");
     }
 
-    private void UpdateSeekFromPlayer()
+    private void HandlePlayerMessage(string json)
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(() => HandlePlayerMessage(json));
+            return;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            var type = root.TryGetProperty("type", out var typeElement)
+                ? typeElement.GetString()
+                : "";
+
+            if (type == "error")
+            {
+                var message = root.TryGetProperty("message", out var messageElement)
+                    ? messageElement.GetString()
+                    : "unsupported video";
+                _status.Text = $"Preview failed: {message}. Click Open External.";
+                return;
+            }
+
+            if (root.TryGetProperty("duration", out var durationElement) &&
+                durationElement.TryGetDouble(out var durationSeconds) &&
+                durationSeconds > 0)
+            {
+                _duration = TimeSpan.FromSeconds(durationSeconds);
+                _seek.Enabled = true;
+                _seek.Maximum = Math.Max(1, (int)Math.Min(int.MaxValue, _duration.TotalMilliseconds));
+            }
+
+            if (type == "opened")
+            {
+                _status.Text = "Preview ready";
+            }
+            else if (type == "playing")
+            {
+                _status.Text = "Preview playing";
+            }
+            else if (type == "paused")
+            {
+                _status.Text = "Paused";
+            }
+
+            if (!root.TryGetProperty("position", out var positionElement) ||
+                !positionElement.TryGetDouble(out var positionSeconds))
+            {
+                return;
+            }
+
+            var position = TimeSpan.FromSeconds(Math.Max(0, positionSeconds));
+            UpdateSeekFromPlayer(position);
+        }
+        catch
+        {
+            // Ignore malformed messages from the preview surface.
+        }
+    }
+
+    private async Task<bool> ExecutePlayerScriptAsync(string script)
+    {
+        try
+        {
+            if (_player.CoreWebView2 is null)
+            {
+                return false;
+            }
+
+            await _player.CoreWebView2.ExecuteScriptAsync(script);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string BuildPlayerHtml(string clipUrl)
+    {
+        var source = JsonSerializer.Serialize(clipUrl);
+        return $$"""
+            <!doctype html>
+            <html>
+            <head>
+            <meta charset="utf-8">
+            <style>
+              html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                overflow: hidden;
+                background: #05090d;
+              }
+              body {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+              }
+              video {
+                width: 100%;
+                height: 100%;
+                object-fit: contain;
+                background: #05090d;
+              }
+            </style>
+            </head>
+            <body>
+              <video id="clip" controls autoplay loop playsinline preload="auto"></video>
+              <script>
+                const video = document.getElementById('clip');
+                const post = (payload) => {
+                  try {
+                    chrome.webview.postMessage(payload);
+                  } catch {}
+                };
+                const state = (type) => post({
+                  type,
+                  position: Number.isFinite(video.currentTime) ? video.currentTime : 0,
+                  duration: Number.isFinite(video.duration) ? video.duration : 0
+                });
+                video.addEventListener('loadedmetadata', () => state('opened'));
+                video.addEventListener('playing', () => state('playing'));
+                video.addEventListener('pause', () => state('paused'));
+                video.addEventListener('error', () => {
+                  const detail = video.error ? `media code ${video.error.code}` : 'unsupported video';
+                  post({ type: 'error', message: detail, position: 0, duration: 0 });
+                });
+                window.emxToggle = () => {
+                  if (video.paused) {
+                    video.play();
+                  } else {
+                    video.pause();
+                  }
+                };
+                window.emxRestart = () => {
+                  video.currentTime = 0;
+                  video.play();
+                };
+                window.emxSeek = (seconds) => {
+                  if (Number.isFinite(seconds)) {
+                    video.currentTime = seconds;
+                  }
+                };
+                setInterval(() => state(video.paused ? 'time' : 'playing'), 250);
+                video.src = {{source}};
+                video.play().catch(() => state('opened'));
+              </script>
+            </body>
+            </html>
+            """;
+    }
+
+    private void UpdateSeekFromPlayer(TimeSpan position)
     {
         if (_isSeeking || !_seek.Enabled)
         {
             return;
         }
 
-        var position = _player.Position;
         var value = (int)Math.Clamp(position.TotalMilliseconds, _seek.Minimum, _seek.Maximum);
         _seek.Value = value;
         _time.Text = FormatTime(position, _duration);
@@ -438,7 +581,6 @@ public sealed class PreviewForm : Form
     {
         if (disposing)
         {
-            _positionTimer.Dispose();
             Icon?.Dispose();
         }
 
