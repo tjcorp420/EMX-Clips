@@ -1,0 +1,19 @@
+{
+  "name": "EMX Clips Companion",
+  "short_name": "EMX Clips",
+  "description": "Install EMX Clips and move gameplay clips from PC to phone.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#020607",
+  "theme_color": "#72ff00",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

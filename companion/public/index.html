@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#72ff00">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="EMX Clips">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>EMX Clips Companion</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-glass">
+        <img class="mark" src="/icons/icon.svg" alt="EMX Clips">
+        <div>
+          <p class="eyebrow">EMX Clips Companion</p>
+          <h1>Move your clips from PC to phone.</h1>
+          <p class="copy">Install EMX Clips, pair your phone on the same Wi-Fi, preview clips, then share or save videos for edits.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <a class="button primary" href="https://github.com/tjcorp420/EMX-Clips/releases/latest/download/EMX.Clips.exe">Download PC App</a>
+        <button class="button" id="installButton" type="button">Install Companion</button>
+      </div>
+    </section>
+
+    <section class="status-card" id="installHelp">
+      <div>
+        <p class="label">Phone install</p>
+        <h2 id="installTitle">Ready to install</h2>
+        <p id="installText">Use the install button when your browser supports it. On iPhone, open this page in Safari, tap Share, then Add to Home Screen.</p>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <p class="label">Step 1</p>
+        <h2>Install on PC</h2>
+        <p>Download EMX Clips, open it once, click Auto Setup Capture, then minimize it to tray.</p>
+      </article>
+      <article class="panel">
+        <p class="label">Step 2</p>
+        <h2>Pair phone</h2>
+        <p>Next build: EMX Clips will show a QR code. Scan it on your phone while both devices are on the same Wi-Fi.</p>
+      </article>
+      <article class="panel">
+        <p class="label">Step 3</p>
+        <h2>Save videos</h2>
+        <p>Preview clips, tap Share, then choose Save Video on iPhone or download/share on Android.</p>
+      </article>
+    </section>
+
+    <section class="panel clip-panel">
+      <div class="section-head">
+        <div>
+          <p class="label">Clip library</p>
+          <h2>Phone preview mockup</h2>
+        </div>
+        <span class="pill">Local pairing soon</span>
+      </div>
+      <div class="clip-list" id="clipList"></div>
+      <div class="actions compact">
+        <button class="button primary" id="shareDemo" type="button">Test Share Flow</button>
+        <button class="button" id="copyLink" type="button">Copy Release Link</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <p class="label">Reality check</p>
+      <h2>About saving to Photos</h2>
+      <p>Web apps cannot silently write to your Photos app. The clean phone flow is a Share button that opens the OS share sheet, then you tap Save Video. A native iPhone app would be needed for deeper Photos integration.</p>
+    </section>
+  </main>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

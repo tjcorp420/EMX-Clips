@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="EMX Clips">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#72ff00"/>
+      <stop offset="0.52" stop-color="#f8fff8"/>
+      <stop offset="1" stop-color="#ec19ff"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#020607"/>
+  <path d="M68 84h376v344H68z" fill="#081011" stroke="#72ff00" stroke-width="10"/>
+  <path d="M126 149h120l-21 46h-65l-9 22h62l-19 44h-63l-11 25h78l-22 50H54l72-187zm128 0h70l25 87 101-87h68l-72 187h-72l34-90-76 64h-32l-22-66-35 92h-61l72-187z" fill="url(#g)" filter="url(#glow)"/>
+  <path d="M371 149h73l-78 83 18 104h-72l-7-52-48 52h-72l98-104-16-83h70l7 42 27-42z" fill="#ec19ff" filter="url(#glow)"/>
+  <path d="M132 386h248" stroke="#72ff00" stroke-width="18" stroke-linecap="round"/>
+</svg>
