@@ -1,0 +1,9 @@
+bin/
+obj/
+.tools/
+publish/
+*.user
+*.suo
+.vs/
+node_modules/
+

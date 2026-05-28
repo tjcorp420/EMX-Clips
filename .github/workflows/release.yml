@@ -1,0 +1,54 @@
+name: Release EMX Clips
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Generate icon
+        shell: pwsh
+        run: ./scripts/generate-icon.ps1
+
+      - name: Publish
+        shell: pwsh
+        run: dotnet publish ./src/EmxClips/EmxClips.csproj --configuration Release --runtime win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:EnableCompressionInSingleFile=true
+
+      - name: Stage artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
+          $exe = "./artifacts/EMX.Clips.exe"
+          Copy-Item "./src/EmxClips/bin/Release/net8.0-windows/win-x64/publish/EMX Clips.exe" $exe
+          $sha = (Get-FileHash $exe -Algorithm SHA256).Hash
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $repo = "${{ github.repository }}"
+          @{
+            version = $version
+            downloadUrl = "https://github.com/$repo/releases/download/${{ github.ref_name }}/EMX.Clips.exe"
+            releaseNotesUrl = "https://github.com/$repo/releases/tag/${{ github.ref_name }}"
+            sha256 = $sha
+          } | ConvertTo-Json | Set-Content "./artifacts/update-manifest.json"
+          Get-Content "./artifacts/update-manifest.json"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./artifacts/EMX.Clips.exe
+            ./artifacts/update-manifest.json

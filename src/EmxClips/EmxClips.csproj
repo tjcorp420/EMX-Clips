@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>EmxClips</RootNamespace>
+    <AssemblyName>EMX Clips</AssemblyName>
+    <ApplicationIcon>Assets\emx-clips.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.1.0</Version>
+    <Authors>EMX</Authors>
+    <Product>EMX Clips</Product>
+    <Description>Lightweight EMX gameplay clipping tray app.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\emx-logo.png" />
+  </ItemGroup>
+</Project>
