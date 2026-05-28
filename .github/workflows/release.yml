@@ -36,15 +36,18 @@ jobs:
           $exe = "./artifacts/EMX.Clips.exe"
           Copy-Item "./src/EmxClips/bin/Release/net8.0-windows/win-x64/publish/EMX Clips.exe" $exe
           $size = (Get-Item $exe).Length
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
           $version = "${{ github.ref_name }}".TrimStart("v")
           $repo = "${{ github.repository }}"
-          @{
+          $manifest = @{
             version = $version
             downloadUrl = "https://github.com/$repo/releases/download/${{ github.ref_name }}/EMX.Clips.exe"
             releaseNotesUrl = "https://github.com/$repo/releases/tag/${{ github.ref_name }}"
-            sha256 = ""
+            sha256 = $hash
             sizeBytes = $size
-          } | ConvertTo-Json | Set-Content "./artifacts/update-manifest.json"
+          } | ConvertTo-Json -Compress
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText("./artifacts/update-manifest.json", $manifest, $utf8NoBom)
           Get-Content "./artifacts/update-manifest.json"
 
       - name: Create GitHub Release

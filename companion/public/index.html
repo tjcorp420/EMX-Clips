@@ -9,15 +9,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>EMX Clips Companion</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/icons/icon.svg">
+  <link rel="icon" href="/icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main class="shell">
     <section class="hero">
       <div class="hero-glass">
-        <img class="mark" src="/icons/icon.svg" alt="EMX Clips">
+        <img class="mark" src="/icons/emx-logo.png" alt="EMX Clips">
         <div>
           <p class="eyebrow">EMX Clips Companion</p>
           <h1>Move your clips from PC to phone.</h1>
@@ -47,13 +47,34 @@
       <article class="panel">
         <p class="label">Step 2</p>
         <h2>Pair phone</h2>
-        <p>Click Phone Share in EMX Clips. Scan the Vercel QR, then tap Open My PC Clips while both devices are on the same Wi-Fi.</p>
+        <p>Click Phone Share in EMX Clips. Use your camera or the built-in scanner here, then tap Open My PC Clips.</p>
       </article>
       <article class="panel">
         <p class="label">Step 3</p>
         <h2>Save videos</h2>
         <p>Preview clips, tap Share, then choose Save Video on iPhone or download/share on Android.</p>
       </article>
+    </section>
+
+    <section class="panel scan-panel">
+      <div class="section-head">
+        <div>
+          <p class="label">QR pairing</p>
+          <h2>Scan QR from PC app</h2>
+        </div>
+        <span class="pill">Camera</span>
+      </div>
+      <p>Open Phone Share on the PC, tap Scan PC QR here, then point your phone at the QR code on your monitor.</p>
+      <div class="scanner-frame" id="scannerFrame" hidden>
+        <video id="scannerVideo" playsinline muted></video>
+        <canvas id="scannerCanvas" hidden></canvas>
+        <div class="scan-reticle" aria-hidden="true"></div>
+      </div>
+      <p class="scanner-status" id="scannerStatus">Ready to scan.</p>
+      <div class="actions compact">
+        <button class="button primary" id="scanQrButton" type="button">Scan PC QR</button>
+        <button class="button" id="stopQrButton" type="button" disabled>Stop Scanner</button>
+      </div>
     </section>
 
     <section class="panel clip-panel">
@@ -82,6 +103,7 @@
     </section>
   </main>
 
+  <script src="/vendor/jsQR.min.js" defer></script>
   <script src="/app.js" type="module"></script>
 </body>
 </html>

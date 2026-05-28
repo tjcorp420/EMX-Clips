@@ -6,8 +6,17 @@ const openPcPortal = document.querySelector("#openPcPortal");
 const pcPortalUrl = document.querySelector("#pcPortalUrl");
 const copyLink = document.querySelector("#copyLink");
 const clipList = document.querySelector("#clipList");
+const scanQrButton = document.querySelector("#scanQrButton");
+const stopQrButton = document.querySelector("#stopQrButton");
+const scannerFrame = document.querySelector("#scannerFrame");
+const scannerVideo = document.querySelector("#scannerVideo");
+const scannerCanvas = document.querySelector("#scannerCanvas");
+const scannerStatus = document.querySelector("#scannerStatus");
 const query = new URLSearchParams(window.location.search);
-const pairedPortalUrl = query.get("portal") || query.get("pc") || "";
+let currentPortalUrl = query.get("portal") || query.get("pc") || "";
+let scannerStream = null;
+let scannerFrameId = 0;
+let scannerActive = false;
 
 const clips = [
   { title: "Replay 00:30", meta: "Ready for preview and share" },
@@ -48,11 +57,8 @@ if (isIos && !isStandalone) {
   installText.textContent = "Open in Safari, tap Share, scroll down, then tap Add to Home Screen. iOS does not allow one-click PWA installs from a website.";
 }
 
-if (pairedPortalUrl && pcPortalUrl) {
-  pcPortalUrl.value = pairedPortalUrl;
-  openPcPortal.textContent = "Open My PC Clips";
-  installTitle.textContent = "PC portal paired";
-  installText.textContent = "Your QR came from EMX Clips. Tap Open My PC Clips while your phone is on the same Wi-Fi as the PC.";
+if (currentPortalUrl && pcPortalUrl) {
+  pairPortal(currentPortalUrl, "Your QR came from EMX Clips. Tap Open My PC Clips while your phone is on the same Wi-Fi as the PC.");
 }
 
 window.addEventListener("beforeinstallprompt", event => {
@@ -82,21 +88,25 @@ openPcPortal?.addEventListener("click", () => {
   if (!value) {
     openPcPortal.textContent = "Paste Link First";
     setTimeout(() => {
-      openPcPortal.textContent = "Open PC Clip Portal";
+      openPcPortal.textContent = currentPortalUrl ? "Open My PC Clips" : "Open PC Clip Portal";
     }, 1600);
     return;
   }
 
-  if (!/^https?:\/\//i.test(value)) {
+  if (!isHttpUrl(value)) {
     openPcPortal.textContent = "Bad Link";
     setTimeout(() => {
-      openPcPortal.textContent = pairedPortalUrl ? "Open My PC Clips" : "Open PC Clip Portal";
+      openPcPortal.textContent = currentPortalUrl ? "Open My PC Clips" : "Open PC Clip Portal";
     }, 1600);
     return;
   }
 
+  currentPortalUrl = value;
   window.location.href = value;
 });
+
+scanQrButton?.addEventListener("click", startQrScanner);
+stopQrButton?.addEventListener("click", () => stopQrScanner("Scanner stopped."));
 
 copyLink?.addEventListener("click", async () => {
   await navigator.clipboard?.writeText(latestReleaseUrl).catch(() => null);
@@ -105,3 +115,161 @@ copyLink?.addEventListener("click", async () => {
     copyLink.textContent = "Copy Release Link";
   }, 1800);
 });
+
+function pairPortal(url, message) {
+  currentPortalUrl = url;
+
+  if (pcPortalUrl) {
+    pcPortalUrl.value = url;
+  }
+
+  if (openPcPortal) {
+    openPcPortal.textContent = "Open My PC Clips";
+  }
+
+  installTitle.textContent = "PC portal paired";
+  installText.textContent = message;
+  setScannerStatus("QR paired. Tap Open My PC Clips.");
+}
+
+function isHttpUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function portalFromQr(value) {
+  try {
+    const parsed = new URL(value.trim());
+    const nestedPortal = parsed.searchParams.get("portal") || parsed.searchParams.get("pc");
+    if (nestedPortal && isHttpUrl(nestedPortal)) {
+      return nestedPortal;
+    }
+
+    if (isHttpUrl(parsed.href)) {
+      return parsed.href;
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+function setScannerStatus(message) {
+  if (scannerStatus) {
+    scannerStatus.textContent = message;
+  }
+}
+
+async function startQrScanner() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setScannerStatus("Camera scanner needs Safari/Chrome over HTTPS.");
+    return;
+  }
+
+  if (!window.jsQR) {
+    setScannerStatus("Scanner library is still loading. Try again in a second.");
+    return;
+  }
+
+  try {
+    stopQrScanner("");
+    setScannerStatus("Camera opening...");
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    });
+
+    scannerFrame.hidden = false;
+    scannerVideo.srcObject = scannerStream;
+    await scannerVideo.play();
+    scannerActive = true;
+    scanQrButton.disabled = true;
+    stopQrButton.disabled = false;
+    setScannerStatus("Point camera at the EMX Clips QR on your PC.");
+    scanLoop();
+  } catch (error) {
+    stopQrScanner("");
+    setScannerStatus(error?.name === "NotAllowedError"
+      ? "Camera blocked. Allow camera access in Safari/Chrome settings."
+      : "Could not open camera scanner.");
+  }
+}
+
+function scanLoop() {
+  if (!scannerActive) {
+    return;
+  }
+
+  if (scannerVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    const width = scannerVideo.videoWidth;
+    const height = scannerVideo.videoHeight;
+
+    if (width > 0 && height > 0) {
+      scannerCanvas.width = width;
+      scannerCanvas.height = height;
+      const context = scannerCanvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(scannerVideo, 0, 0, width, height);
+      const frame = context.getImageData(0, 0, width, height);
+      const code = window.jsQR(frame.data, width, height, { inversionAttempts: "attemptBoth" });
+
+      if (code?.data) {
+        const portal = portalFromQr(code.data);
+        if (portal) {
+          pairPortal(portal, "QR scanned. Tap Open My PC Clips while your phone is on the same Wi-Fi as the PC.");
+          stopQrScanner("");
+          return;
+        }
+
+        setScannerStatus("QR found, but it was not an EMX Clips link.");
+      }
+    }
+  }
+
+  scannerFrameId = requestAnimationFrame(scanLoop);
+}
+
+function stopQrScanner(message) {
+  scannerActive = false;
+
+  if (scannerFrameId) {
+    cancelAnimationFrame(scannerFrameId);
+    scannerFrameId = 0;
+  }
+
+  if (scannerStream) {
+    for (const track of scannerStream.getTracks()) {
+      track.stop();
+    }
+    scannerStream = null;
+  }
+
+  if (scannerVideo) {
+    scannerVideo.pause();
+    scannerVideo.srcObject = null;
+  }
+
+  if (scannerFrame) {
+    scannerFrame.hidden = true;
+  }
+
+  if (scanQrButton) {
+    scanQrButton.disabled = false;
+  }
+
+  if (stopQrButton) {
+    stopQrButton.disabled = true;
+  }
+
+  if (message) {
+    setScannerStatus(message);
+  }
+}

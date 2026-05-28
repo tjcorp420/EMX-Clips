@@ -1,11 +1,16 @@
-const CACHE_NAME = "emx-clips-companion-v1";
+const CACHE_NAME = "emx-clips-companion-v2";
 const ASSETS = [
   "/",
   "/index.html",
   "/styles.css",
   "/app.js",
   "/manifest.webmanifest",
-  "/icons/icon.svg"
+  "/icons/emx-logo.png",
+  "/icons/favicon.png",
+  "/icons/apple-touch-icon.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/vendor/jsQR.min.js"
 ];
 
 self.addEventListener("install", event => {
