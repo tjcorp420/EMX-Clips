@@ -28,6 +28,7 @@ public sealed class TrayAppContext : ApplicationContext
     private ObsWebSocketClient? _obsClient;
     private PhoneCompanionServer? _phoneCompanionServer;
     private PhoneCompanionForm? _phoneCompanionForm;
+    private const string HostedCompanionUrl = "https://emx-clips-companion.vercel.app/";
     private DashboardForm? _dashboard;
     private bool _busy;
     private bool _watchdogBusy;
@@ -944,19 +945,20 @@ public sealed class TrayAppContext : ApplicationContext
         try
         {
             _phoneCompanionServer ??= new PhoneCompanionServer(_settings);
-            var url = _phoneCompanionServer.Start();
+            var localPortalUrl = _phoneCompanionServer.Start();
+            var companionUrl = BuildHostedCompanionUrl(localPortalUrl);
 
             if (_phoneCompanionForm is null || _phoneCompanionForm.IsDisposed)
             {
-                _phoneCompanionForm = new PhoneCompanionForm(url, _icon);
+                _phoneCompanionForm = new PhoneCompanionForm(companionUrl, localPortalUrl, _icon);
                 _phoneCompanionForm.FormClosed += (_, _) => _phoneCompanionForm = null;
             }
 
             _phoneCompanionForm.Show();
             _phoneCompanionForm.Activate();
-            Clipboard.SetText(url);
-            ShowBalloon("Phone companion ready", $"Open {url} on your phone. Link copied.", ToolTipIcon.Info);
-            SetDashboardStatus($"Phone companion ready: open {url} on your phone while on the same Wi-Fi.");
+            Clipboard.SetText(companionUrl);
+            ShowBalloon("Phone companion ready", "Vercel companion link copied. Scan the QR, then tap Open PC Clip Portal.", ToolTipIcon.Info);
+            SetDashboardStatus("Phone companion ready: scan the Vercel QR on your phone, then open the PC clip portal while on the same Wi-Fi.");
         }
         catch (Exception ex)
         {
@@ -964,6 +966,13 @@ public sealed class TrayAppContext : ApplicationContext
             ShowBalloon("EMX Clips", message, ToolTipIcon.Error);
             SetDashboardStatus(message);
         }
+    }
+
+    private static string BuildHostedCompanionUrl(string localPortalUrl)
+    {
+        var builder = new UriBuilder(HostedCompanionUrl);
+        builder.Query = "portal=" + Uri.EscapeDataString(localPortalUrl);
+        return builder.Uri.ToString();
     }
 
     private void OpenLatestClip()

@@ -5,13 +5,15 @@ namespace EmxClips;
 
 public sealed class PhoneCompanionForm : Form
 {
-    private readonly string _url;
+    private readonly string _companionUrl;
+    private readonly string _localPortalUrl;
     private readonly PictureBox _qr = new();
     private readonly TextBox _urlBox = new();
 
-    public PhoneCompanionForm(string url, Icon icon)
+    public PhoneCompanionForm(string companionUrl, string localPortalUrl, Icon icon)
     {
-        _url = url;
+        _companionUrl = companionUrl;
+        _localPortalUrl = localPortalUrl;
         Icon = (Icon)icon.Clone();
         Text = "EMX Phone Companion";
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -45,7 +47,7 @@ public sealed class PhoneCompanionForm : Form
         var header = new Label
         {
             Dock = DockStyle.Fill,
-            Text = "PHONE COMPANION\nScan or open this link on your phone while it is on the same Wi-Fi as this PC.",
+            Text = "PHONE COMPANION\nScan this Vercel link on your phone. It opens the EMX page first, then connects to this PC.",
             ForeColor = EmxTheme.Text,
             BackColor = EmxTheme.Background,
             Font = new Font("Segoe UI", 12f, FontStyle.Bold),
@@ -56,12 +58,12 @@ public sealed class PhoneCompanionForm : Form
         _qr.Dock = DockStyle.Fill;
         _qr.SizeMode = PictureBoxSizeMode.Zoom;
         _qr.BackColor = Color.White;
-        _qr.Image = CreateQrImage(_url);
+        _qr.Image = CreateQrImage(_companionUrl);
         root.Controls.Add(Wrap(_qr, Color.White), 0, 1);
 
         _urlBox.Dock = DockStyle.Fill;
         _urlBox.ReadOnly = true;
-        _urlBox.Text = _url;
+        _urlBox.Text = _companionUrl;
         _urlBox.BackColor = EmxTheme.Surface;
         _urlBox.ForeColor = EmxTheme.GreenGlow;
         _urlBox.BorderStyle = BorderStyle.FixedSingle;
@@ -71,7 +73,7 @@ public sealed class PhoneCompanionForm : Form
         var notes = new Label
         {
             Dock = DockStyle.Fill,
-            Text = "Your phone can preview clips, open videos, download files, and use the phone share sheet. On iPhone, tap Open Video, then Share, then Save Video to put it in Photos. If Windows Firewall asks, allow EMX Clips on Private networks.",
+            Text = $"The QR opens the hosted EMX Companion, then its Open PC Clip Portal button uses this PC link: {_localPortalUrl}\n\nYour phone can preview clips, open videos, download files, and use the phone share sheet. On iPhone, tap Open Video, then Share, then Save Video to put it in Photos. If Windows Firewall asks, allow EMX Clips on Private networks.",
             ForeColor = EmxTheme.MutedText,
             BackColor = EmxTheme.Background,
             Font = new Font("Segoe UI", 10f),
@@ -86,11 +88,11 @@ public sealed class PhoneCompanionForm : Form
             BackColor = EmxTheme.Background
         };
         buttons.Controls.Add(MakeButton("Close", Close));
-        buttons.Controls.Add(MakeButton("Open", () => Process.Start(new ProcessStartInfo { FileName = _url, UseShellExecute = true })));
+        buttons.Controls.Add(MakeButton("Open", () => Process.Start(new ProcessStartInfo { FileName = _companionUrl, UseShellExecute = true })));
         buttons.Controls.Add(MakeButton("Copy Link", () =>
         {
-            Clipboard.SetText(_url);
-            MessageBox.Show(this, "Phone companion link copied.", "EMX Clips", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Clipboard.SetText(_companionUrl);
+            MessageBox.Show(this, "Hosted phone companion link copied.", "EMX Clips", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }));
         root.Controls.Add(buttons, 0, 4);
 

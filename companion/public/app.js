@@ -6,6 +6,8 @@ const openPcPortal = document.querySelector("#openPcPortal");
 const pcPortalUrl = document.querySelector("#pcPortalUrl");
 const copyLink = document.querySelector("#copyLink");
 const clipList = document.querySelector("#clipList");
+const query = new URLSearchParams(window.location.search);
+const pairedPortalUrl = query.get("portal") || query.get("pc") || "";
 
 const clips = [
   { title: "Replay 00:30", meta: "Ready for preview and share" },
@@ -37,13 +39,20 @@ const isStandalone = window.matchMedia("(display-mode: standalone)").matches || 
 
 if (isStandalone) {
   installTitle.textContent = "Companion installed";
-  installText.textContent = "Open EMX Clips on PC, then use the upcoming Phone Companion QR button to pair this app.";
+  installText.textContent = "Open EMX Clips on PC, then use Phone Companion to pair this app with your clip portal.";
 }
 
 if (isIos && !isStandalone) {
   installButton.textContent = "Show iPhone Steps";
   installTitle.textContent = "Install on iPhone";
   installText.textContent = "Open in Safari, tap Share, scroll down, then tap Add to Home Screen. iOS does not allow one-click PWA installs from a website.";
+}
+
+if (pairedPortalUrl && pcPortalUrl) {
+  pcPortalUrl.value = pairedPortalUrl;
+  openPcPortal.textContent = "Open My PC Clips";
+  installTitle.textContent = "PC portal paired";
+  installText.textContent = "Your QR came from EMX Clips. Tap Open My PC Clips while your phone is on the same Wi-Fi as the PC.";
 }
 
 window.addEventListener("beforeinstallprompt", event => {
@@ -74,6 +83,14 @@ openPcPortal?.addEventListener("click", () => {
     openPcPortal.textContent = "Paste Link First";
     setTimeout(() => {
       openPcPortal.textContent = "Open PC Clip Portal";
+    }, 1600);
+    return;
+  }
+
+  if (!/^https?:\/\//i.test(value)) {
+    openPcPortal.textContent = "Bad Link";
+    setTimeout(() => {
+      openPcPortal.textContent = pairedPortalUrl ? "Open My PC Clips" : "Open PC Clip Portal";
     }, 1600);
     return;
   }

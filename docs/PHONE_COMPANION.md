@@ -6,9 +6,10 @@ EMX Clips includes a local phone companion server for moving clips from PC to ph
 
 1. Open EMX Clips on the PC.
 2. Click `Phone Share` on the Clips tab or `Phone Companion` on Settings.
-3. Scan the QR code or open the copied link on your phone.
-4. Keep the PC and phone on the same Wi-Fi.
-5. Preview, open, download, or share clips from the phone page.
+3. Scan the QR code or open the copied Vercel link on your phone.
+4. Tap `Open My PC Clips` on the EMX Companion page.
+5. Keep the PC and phone on the same Wi-Fi.
+6. Preview, open, download, or share clips from the phone page.
 
 ## iPhone Photos
 
@@ -22,4 +23,4 @@ iOS does not let a web app silently save a video straight into Photos. Use:
 
 - If the phone cannot connect, allow EMX Clips through Windows Firewall for Private networks.
 - MP4 files work best on phones. If a clip is MKV, use `Export MP4` in EMX Clips first.
-- The Vercel companion page is for installs/downloads. Real-time clip viewing comes from the local PC companion link.
+- The Vercel companion page is the branded phone entry point. Real-time clip viewing still comes from the local PC companion link it opens.
